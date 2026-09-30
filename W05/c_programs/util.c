@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "util.h"
 
 /* def hex2bin(s): */
 /* 	mp = {'0': "0000", */
@@ -296,4 +297,48 @@ char *xor_bits(const char *a, const char *b) {
 
     ans[len] = '\0';
     return ans;
+}
+
+char *ascii2hex(const char *ascii)
+{
+    size_t len = strlen(ascii);
+
+    char *hex = malloc(len * 2 + 1);
+    if (hex == NULL)
+        return NULL;
+
+    for (size_t i = 0; i < len; i++) {
+        sprintf(&hex[i * 2], "%02X", (unsigned char)ascii[i]);
+    }
+
+    hex[len * 2] = '\0';
+
+    return hex;
+}
+
+char *hex2ascii(const char *hex)
+{
+    size_t len = strlen(hex);
+
+    if (len % 2 != 0)
+        return NULL;
+
+    char *ascii = malloc(len / 2 + 1);
+    if (ascii == NULL)
+        return NULL;
+
+    for (size_t i = 0; i < len; i += 2) {
+        unsigned int value;
+
+        if (sscanf(&hex[i], "%2x", &value) != 1) {
+            free(ascii);
+            return NULL;
+        }
+
+        ascii[i / 2] = (char)value;
+    }
+
+    ascii[len / 2] = '\0';
+
+    return ascii;
 }

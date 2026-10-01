@@ -342,3 +342,26 @@ char *hex2ascii(const char *hex)
 
     return ascii;
 }
+
+char *ascii2bin(const char *ascii)
+{
+    size_t len = strlen(ascii);
+    char *binary = malloc(len * 8 + 1);
+
+    if (binary == NULL) {
+        return NULL;
+    }
+
+    for (size_t i = 0; i < len; i++) {
+        unsigned char c = (unsigned char)ascii[i];
+
+        for (int j = 7; j >= 0; j--) {
+            binary[i * 8 + (7 - j)] =
+                ((c >> j) & 1) ? '1' : '0';
+        }
+    }
+
+    binary[len * 8] = '\0';
+
+    return binary;
+}

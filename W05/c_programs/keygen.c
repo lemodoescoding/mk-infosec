@@ -6,12 +6,12 @@
 #include "util.h"
 
 void generate_round_keys(
-    const char *key_hex,
+    const char *key_ascii,
     char *rkb[16],
     char *rk[16]
 )
 {
-    char *key = hex2bin(key_hex);
+    char *key = ascii2bin(key_ascii);
 
     char *permuted_key = permute(key, keyp, 56);
 

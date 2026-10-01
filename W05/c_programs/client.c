@@ -22,7 +22,7 @@ int main(void)
 
     struct sockaddr_in server_addr;
 
-    char des_key[64];
+    char des_key[9];
     char server_ip[INET_ADDRSTRLEN];
 
     printf("Server IP address: ");
@@ -37,17 +37,22 @@ int main(void)
 
     server_ip[strcspn(server_ip, "\n")] = '\0';
 
-    printf("DES key: ");
+    printf("Enter DES key (8 ASCII characters): ");
 
-    if (fgets(
-            des_key,
-            sizeof(des_key),
-            stdin) == NULL) {
-
+    if (fgets(des_key, sizeof(des_key), stdin) == NULL) {
         return 1;
     }
 
     des_key[strcspn(des_key, "\n")] = '\0';
+
+    if (strlen(des_key) != 8) {
+        fprintf(
+            stderr,
+            "Error: DES key must be exactly 8 ASCII characters.\n"
+        );
+        return 1;
+    }
+
 
     // create the AF_INET ipv4 socket using SOCK_STREAM or TCP
     sock_fd =

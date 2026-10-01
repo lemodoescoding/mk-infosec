@@ -16,4 +16,6 @@ char *ascii2hex(const char *ascii);
 
 char *hex2ascii(const char *hex);
 
+char *ascii2bin(const char *ascii);
+
 #endif

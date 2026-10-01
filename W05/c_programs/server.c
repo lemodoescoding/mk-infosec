@@ -23,7 +23,9 @@ int main(void)
 
 
     char server_ip[INET_ADDRSTRLEN];
-    char des_key[64];
+
+    char des_key[9];
+
 
     /*
      * Get configuration from user
@@ -42,13 +44,21 @@ int main(void)
         strcpy(server_ip, "0.0.0.0");
     }
 
-    printf("DES key: ");
+    printf("Enter DES key (8 ASCII characters): ");
+
     if (fgets(des_key, sizeof(des_key), stdin) == NULL) {
         return 1;
     }
 
     des_key[strcspn(des_key, "\n")] = '\0';
 
+    if (strlen(des_key) != 8) {
+        fprintf(
+            stderr,
+            "Error: DES key must be exactly 8 ASCII characters.\n"
+        );
+        return 1;
+    }
 
     socklen_t client_addr_len =
         sizeof(client_addr);

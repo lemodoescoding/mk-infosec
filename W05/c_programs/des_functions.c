@@ -155,8 +155,15 @@ char *encrypt(const char *pt, char *rkb[16], char *rk[16])
     strcpy(combine, left);
     strcat(combine, right);
 
+    printf("\n");
+    printf("Combination before final permutation:\n");
+    printf("%s\n", bin2hex(combine));
+
     // Final permutation
     char *cipher_text = permute(combine, final_perm, 64);
+
+    printf("Final permutation:\n");
+    printf("%s\n", bin2hex(cipher_text));
 
     return cipher_text;
 }

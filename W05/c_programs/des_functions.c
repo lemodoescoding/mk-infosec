@@ -10,6 +10,517 @@
 #define DES_BLOCK_SIZE 8
 #define DES_HEX_BLOCK_SIZE 16
 
+/*
+ * XOR two 16-character hexadecimal DES blocks.
+ *
+ * Example:
+ *      AABBCCDDEEFF0011
+ * XOR  1122334455667788
+ * --------------------
+ *      BB99FF99B9997799
+ */
+static char *xor_hex_blocks(
+    const char *a,
+    const char *b
+)
+{
+    if (strlen(a) != DES_HEX_BLOCK_SIZE ||
+        strlen(b) != DES_HEX_BLOCK_SIZE) {
+        return NULL;
+    }
+
+    char *result =
+        malloc(DES_HEX_BLOCK_SIZE + 1);
+
+    if (result == NULL)
+        return NULL;
+
+    for (int i = 0; i < DES_HEX_BLOCK_SIZE; i++) {
+        unsigned int x;
+        unsigned int y;
+
+        if (sscanf(&a[i], "%1x", &x) != 1 ||
+            sscanf(&b[i], "%1x", &y) != 1) {
+
+            free(result);
+            return NULL;
+        }
+
+        result[i] =
+            "0123456789ABCDEF"[x ^ y];
+    }
+
+    result[DES_HEX_BLOCK_SIZE] = '\0';
+
+    return result;
+}
+
+
+/*
+ * Encrypt one hexadecimal DES block.
+ *
+ * This is similar to des_encrypt_block(), except that
+ * the input is already hexadecimal rather than ASCII.
+ */
+static char *des_encrypt_hex_block(
+    const char *plaintext_hex,
+    const char *key
+)
+{
+    char *rkb[16];
+    char *rk[16];
+
+    generate_round_keys(key, rkb, rk);
+
+    char *cipher_bin =
+        encrypt(plaintext_hex, rkb, rk);
+
+    if (cipher_bin == NULL) {
+        for (int i = 0; i < 16; i++) {
+            free(rkb[i]);
+            free(rk[i]);
+        }
+
+        return NULL;
+    }
+
+    char *cipher_hex =
+        bin2hex(cipher_bin);
+
+    free(cipher_bin);
+
+    for (int i = 0; i < 16; i++) {
+        free(rkb[i]);
+        free(rk[i]);
+    }
+
+    return cipher_hex;
+}
+
+/*
+ * Decrypt one hexadecimal DES block.
+ *
+ * The input and output are both hexadecimal.
+ */
+static char *des_decrypt_hex_block(
+    const char *ciphertext_hex,
+    const char *key
+)
+{
+    char *rkb[16];
+    char *rk[16];
+
+    generate_round_keys(key, rkb, rk);
+
+    /*
+     * Reverse the round keys for DES decryption.
+     */
+    char *rkb_rev[16];
+    char *rk_rev[16];
+
+    for (int i = 0; i < 16; i++) {
+        rkb_rev[i] = rkb[15 - i];
+        rk_rev[i] = rk[15 - i];
+    }
+
+    char *plaintext_bin =
+        encrypt(ciphertext_hex, rkb_rev, rk_rev);
+
+    if (plaintext_bin == NULL) {
+        for (int i = 0; i < 16; i++) {
+            free(rkb[i]);
+            free(rk[i]);
+        }
+
+        return NULL;
+    }
+
+    char *plaintext_hex =
+        bin2hex(plaintext_bin);
+
+    free(plaintext_bin);
+
+    for (int i = 0; i < 16; i++) {
+        free(rkb[i]);
+        free(rk[i]);
+    }
+
+    return plaintext_hex;
+}
+
+char *des_cbc_encrypt(
+    const char *plaintext,
+    const char *key,
+    const char *iv
+)
+{
+    size_t plaintext_len = strlen(plaintext);
+
+    /*
+     * DES block size = 8 bytes.
+     *
+     * PKCS#7 padding:
+     * 8-byte plaintext -> 8 bytes padding
+     * 7-byte plaintext -> 1 byte padding
+     * etc.
+     */
+    size_t padding =
+        DES_BLOCK_SIZE -
+        (plaintext_len % DES_BLOCK_SIZE);
+
+    size_t padded_len =
+        plaintext_len + padding;
+
+    char *padded =
+        malloc(padded_len);
+
+    if (padded == NULL)
+        return NULL;
+
+    memcpy(
+        padded,
+        plaintext,
+        plaintext_len
+    );
+
+    for (size_t i = plaintext_len;
+         i < padded_len;
+         i++) {
+        padded[i] = (char)padding;
+    }
+
+    /*
+     * CBC IV must be exactly 8 ASCII bytes.
+     */
+    if (strlen(iv) != DES_BLOCK_SIZE) {
+        free(padded);
+        return NULL;
+    }
+
+    /*
+     * Convert IV from ASCII -> hexadecimal.
+     *
+     * Example:
+     *
+     * "12345678"
+     *
+     * becomes:
+     *
+     * 3132333435363738
+     */
+    char *previous =
+        ascii2hex(iv);
+
+    if (previous == NULL) {
+        free(padded);
+        return NULL;
+    }
+
+    /*
+     * Each 8-byte plaintext block becomes
+     * 16 hexadecimal ciphertext characters.
+     */
+    char *ciphertext =
+        malloc(padded_len * 2 + 1);
+
+    if (ciphertext == NULL) {
+        free(padded);
+        free(previous);
+        return NULL;
+    }
+
+    ciphertext[0] = '\0';
+
+    for (size_t offset = 0;
+         offset < padded_len;
+         offset += DES_BLOCK_SIZE) {
+
+        /*
+         * Convert plaintext block to hexadecimal.
+         */
+        char block[DES_BLOCK_SIZE + 1];
+
+        memcpy(
+            block,
+            padded + offset,
+            DES_BLOCK_SIZE
+        );
+
+        block[DES_BLOCK_SIZE] = '\0';
+
+        char *block_hex =
+            ascii2hex(block);
+
+        if (block_hex == NULL) {
+            free(padded);
+            free(previous);
+            free(ciphertext);
+            return NULL;
+        }
+
+        /*
+         * CBC:
+         *
+         * P[i] XOR C[i-1]
+         *
+         * where C[-1] = IV
+         */
+        char *xored =
+            xor_hex_blocks(
+                block_hex,
+                previous
+            );
+
+        free(block_hex);
+
+        if (xored == NULL) {
+            free(padded);
+            free(previous);
+            free(ciphertext);
+            return NULL;
+        }
+
+        /*
+         * DES( P[i] XOR previous )
+         */
+        char *encrypted =
+            des_encrypt_hex_block(
+                xored,
+                key
+            );
+
+        free(xored);
+
+        if (encrypted == NULL) {
+            free(padded);
+            free(previous);
+            free(ciphertext);
+            return NULL;
+        }
+
+        /*
+         * Append ciphertext block.
+         */
+        strcat(ciphertext, encrypted);
+
+        /*
+         * C[i] becomes the previous block
+         * for the next iteration.
+         */
+        free(previous);
+
+        previous = encrypted;
+    }
+
+    free(previous);
+    free(padded);
+
+    return ciphertext;
+}
+
+char *des_cbc_decrypt(
+    const char *ciphertext,
+    const char *key,
+    const char *iv
+)
+{
+    size_t ciphertext_len =
+        strlen(ciphertext);
+
+    /*
+     * Ciphertext must consist of complete
+     * 8-byte DES blocks.
+     *
+     * 8 bytes = 16 hexadecimal characters.
+     */
+    if (ciphertext_len == 0 ||
+        ciphertext_len % DES_HEX_BLOCK_SIZE != 0) {
+        return NULL;
+    }
+
+    /*
+     * IV must be exactly 8 ASCII bytes.
+     */
+    if (strlen(iv) != DES_BLOCK_SIZE) {
+        return NULL;
+    }
+
+    size_t number_of_blocks =
+        ciphertext_len /
+        DES_HEX_BLOCK_SIZE;
+
+    size_t plaintext_size =
+        number_of_blocks *
+        DES_BLOCK_SIZE;
+
+    /*
+     * This temporarily stores the plaintext
+     * including PKCS#7 padding.
+     */
+    char *plaintext =
+        malloc(plaintext_size + 1);
+
+    if (plaintext == NULL)
+        return NULL;
+
+    /*
+     * Previous ciphertext block starts as IV.
+     */
+    char *previous =
+        ascii2hex(iv);
+
+    if (previous == NULL) {
+        free(plaintext);
+        return NULL;
+    }
+
+    size_t plaintext_offset = 0;
+
+    for (size_t offset = 0;
+         offset < ciphertext_len;
+         offset += DES_HEX_BLOCK_SIZE) {
+
+        /*
+         * Extract C[i].
+         */
+        char cipher_block[
+            DES_HEX_BLOCK_SIZE + 1
+        ];
+
+        memcpy(
+            cipher_block,
+            ciphertext + offset,
+            DES_HEX_BLOCK_SIZE
+        );
+
+        cipher_block[
+            DES_HEX_BLOCK_SIZE
+        ] = '\0';
+
+        /*
+         * DES_DECRYPT(C[i])
+         */
+        char *decrypted =
+            des_decrypt_hex_block(
+                cipher_block,
+                key
+            );
+
+        if (decrypted == NULL) {
+            free(previous);
+            free(plaintext);
+            return NULL;
+        }
+
+        /*
+         * CBC:
+         *
+         * P[i] =
+         * DES_DECRYPT(C[i]) XOR C[i-1]
+         *
+         * where C[-1] = IV
+         */
+        char *plain_hex =
+            xor_hex_blocks(
+                decrypted,
+                previous
+            );
+
+        free(decrypted);
+
+        if (plain_hex == NULL) {
+            free(previous);
+            free(plaintext);
+            return NULL;
+        }
+
+        /*
+         * Convert the resulting 8-byte block
+         * from hexadecimal to ASCII.
+         */
+        char *plain_block =
+            hex2ascii(plain_hex);
+
+        free(plain_hex);
+
+        if (plain_block == NULL) {
+            free(previous);
+            free(plaintext);
+            return NULL;
+        }
+
+        memcpy(
+            plaintext + plaintext_offset,
+            plain_block,
+            DES_BLOCK_SIZE
+        );
+
+        plaintext_offset += DES_BLOCK_SIZE;
+
+        free(plain_block);
+
+        /*
+         * C[i] becomes C[i-1] for the
+         * next iteration.
+         */
+        free(previous);
+
+        previous =
+            malloc(DES_HEX_BLOCK_SIZE + 1);
+
+        if (previous == NULL) {
+            free(plaintext);
+            return NULL;
+        }
+
+        strcpy(previous, cipher_block);
+    }
+
+    free(previous);
+
+    plaintext[plaintext_offset] = '\0';
+
+    /*
+     * Remove PKCS#7 padding.
+     */
+    unsigned char padding =
+        (unsigned char)
+        plaintext[plaintext_offset - 1];
+
+    if (padding < 1 ||
+        padding > DES_BLOCK_SIZE ||
+        padding > plaintext_offset) {
+
+        free(plaintext);
+        return NULL;
+    }
+
+    /*
+     * Verify all padding bytes.
+     */
+    for (size_t i = 0;
+         i < padding;
+         i++) {
+
+        if ((unsigned char)
+            plaintext[
+                plaintext_offset - 1 - i
+            ] != padding) {
+
+            free(plaintext);
+            return NULL;
+        }
+    }
+
+    /*
+     * Remove padding.
+     */
+    plaintext[
+        plaintext_offset - padding
+    ] = '\0';
+
+    return plaintext;
+}
 
 char *encrypt(const char *pt, char *rkb[16], char *rk[16])
 {

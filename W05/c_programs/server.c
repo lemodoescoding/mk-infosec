@@ -165,6 +165,10 @@ int main(void)
         ntohs(client_addr.sin_port)
     );
 
+    printf("[Server] > ");
+    fflush(stdout);
+
+
     // the chat loop until typed exit.
     while (1) {
         fd_set read_fds;
@@ -188,14 +192,10 @@ int main(void)
             break;
         }
 
-
         // when server wants to send a message
         if (FD_ISSET(STDIN_FILENO, &read_fds)) {
 
             char input[4096];
-
-            printf("You: ");
-            fflush(stdout);
 
             if (fgets(
                     input,
@@ -211,6 +211,7 @@ int main(void)
                 "\n"
             )] = '\0';
 
+            printf("[Server] Encrypting message...\n");
 
             // encrypt the server messsage before send
             char *encrypted_response =
@@ -232,7 +233,7 @@ int main(void)
             size_t encrypted_response_length =
                 strlen(encrypted_response);
 
-
+            printf("[Server] Encrypted and sent the message to client.\n");
             printf(
                 "Sending ciphertext (%zu bytes):\n%s\n",
                 encrypted_response_length,
@@ -260,6 +261,9 @@ int main(void)
             if (strcmp(input, "exit") == 0) {
                 break;
             }
+
+            printf("\n[Server] > ");
+            fflush(stdout);
         }
 
         // when client sent a message received by server
@@ -276,7 +280,7 @@ int main(void)
             if (encrypted == NULL) {
 
                 printf(
-                    "Client disconnected or invalid message.\n"
+                    "\n[Server] Client disconnected or invalid message.\n"
                 );
 
                 break;
@@ -284,7 +288,7 @@ int main(void)
 
 
             printf(
-                "\nReceived ciphertext (%zu bytes):\n%s\n",
+                "\n[Server] Received ciphertext (%zu bytes):\n%s\n",
                 encrypted_length,
                 encrypted
             );
@@ -298,11 +302,12 @@ int main(void)
 
             free(encrypted);
 
+            printf("[Server] Decrypting message\n");
 
             if (plaintext == NULL) {
 
                 printf(
-                    "DES decryption failed.\n"
+                    "[Server] DES decryption failed.\n"
                 );
 
                 break;
@@ -310,7 +315,7 @@ int main(void)
 
 
             printf(
-                "Client: %s\n",
+                "[Client] > %s\n",
                 plaintext
             );
 
@@ -323,6 +328,10 @@ int main(void)
 
 
             free(plaintext);
+
+            printf("\n[Server] > ");
+            fflush(stdout);
+
         }
     }
 

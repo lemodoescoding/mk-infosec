@@ -105,6 +105,9 @@ int main(void)
         "Connected to encrypted TCP server.\n"
     );
 
+    printf("[Client] > ");
+    fflush(stdout);
+
     // chat loop
     // chat loop
     while (1) {
@@ -130,12 +133,8 @@ int main(void)
             break;
         }
 
-
         // User typed something
         if (FD_ISSET(STDIN_FILENO, &read_fds)) {
-
-            printf("You: ");
-            fflush(stdout);
 
             if (fgets(
                     buffer,
@@ -151,6 +150,7 @@ int main(void)
                 "\n"
             )] = '\0';
 
+            printf("[Client] Encrypting message...\n");
 
             // encrypt the message before sending 
             char *encrypted =
@@ -173,11 +173,12 @@ int main(void)
                 strlen(encrypted);
 
 
-            printf(
-                "Encrypted sending: %s\n",
-                encrypted
-            );
-
+            /* printf( */
+            /*     "Encrypted sending: %s\n", */
+            /*     encrypted */
+            /* ); */
+            printf("[Client] Encrypting message...\n");
+            printf("Sending to server: %s\n", encrypted);
 
             // [4-byte length][ciphertext]
             if (send_message(
@@ -192,7 +193,7 @@ int main(void)
                 break;
             }
 
-
+            printf("[Client] Message Encrypted and sent.\n");
             free(encrypted);
 
 
@@ -200,6 +201,9 @@ int main(void)
             if (strcmp(buffer, "exit") == 0) {
                 break;
             }
+
+            printf("[Client] > ");
+            fflush(stdout);
         }
 
         // when server sends something
@@ -216,7 +220,7 @@ int main(void)
             if (encrypted_response == NULL) {
 
                 printf(
-                    "Server disconnected or invalid message.\n"
+                    "\nServer disconnected or invalid message.\n"
                 );
 
                 break;
@@ -224,7 +228,7 @@ int main(void)
 
 
             printf(
-                "\nEncrypted received (%zu bytes):\n%s\n",
+                "\n[Client] Encrypted received (%zu bytes):\n%s\n",
                 encrypted_response_length,
                 encrypted_response
             );
@@ -251,7 +255,7 @@ int main(void)
 
 
             printf(
-                "Server: %s\n",
+                "[Server] > %s\n",
                 plaintext
             );
 
@@ -265,6 +269,9 @@ int main(void)
 
 
             free(plaintext);
+
+            printf("[Client] > ");
+            fflush(stdout);
         }
     }
 

@@ -1,3 +1,4 @@
+#include <netinet/in.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -74,28 +75,67 @@ static int recv_all(
     return 0;
 }
 
+int generate_iv(char iv[IV_SIZE + 1]) {
+    FILE *f = fopen("/dev/urandom", "rb");
+
+    if (f == NULL) {
+        return -1;
+    }
+
+    size_t i = 0;
+    while(i < IV_SIZE) {
+        int byte = fgetc(f);
+
+        if(byte == EOF) {
+            fclose(f);
+            return -1;
+        }
+
+        if (byte != 0x0){
+            iv[i++] = (char)byte;
+        }
+    }
+
+    iv[IV_SIZE] = '\0';
+    fclose(f);
+    return 0;
+}
 
 int send_message(
     int sock_fd,
+    const char *iv,
     const char *message,
     size_t length
 )
 {
+    // body size is IV_SIZE + the length
+    size_t body_length = IV_SIZE + length;
+
     // Our protocol uses a 32-bit length field.
-    if (length > UINT32_MAX)
+    if (body_length > UINT32_MAX || body_length > MAX_MESSAGE_SIZE)
         return -1;
 
     /*
      * Convert host byte order to network byte order.
      */
     uint32_t network_length =
-        htonl((uint32_t)length);
+        htonl((uint32_t)body_length);
 
     // Sends >I of message byte length
     if (send_all(
             sock_fd,
             &network_length,
             sizeof(network_length)
+        ) < 0) {
+
+        return -1;
+    }
+
+    // sends the IV (8 raw bytes)
+    if (send_all(
+            sock_fd,
+            iv,
+            IV_SIZE
         ) < 0) {
 
         return -1;
@@ -117,52 +157,78 @@ int send_message(
 
 char *receive_message(
     int sock_fd,
+    char iv[IV_SIZE + 1],
     size_t *length
 )
 {
     uint32_t network_length;
-
-    // receives the first 4-byte message length
+ 
+    // receives the first 4-byte body length
     if (recv_all(
             sock_fd,
             &network_length,
             sizeof(network_length)
         ) < 0) {
-
+ 
         return NULL;
     }
-
+ 
     // convert network byte order back to host byte order.
-    uint32_t message_length =
+    uint32_t body_length =
         ntohl(network_length);
-
+ 
     // protect from memory / malloc overflow
-    if (message_length > MAX_MESSAGE_SIZE)
+    if (body_length > MAX_MESSAGE_SIZE)
         return NULL;
-
-    // allocate space for message + NULL
+ 
+    // body must contain the IV plus at least one ciphertext byte
+    if (body_length <= IV_SIZE)
+        return NULL;
+ 
+    // receive the IV
+    if (recv_all(
+            sock_fd,
+            iv,
+            IV_SIZE
+        ) < 0) {
+ 
+        return NULL;
+    }
+ 
+    // a 0x00 byte would truncate the IV, reject as malformed
+    if (memchr(iv, '\0', IV_SIZE) != NULL)
+        return NULL;
+ 
+    iv[IV_SIZE] = '\0';
+ 
+    size_t ciphertext_length =
+        (size_t)body_length - IV_SIZE;
+ 
+    // allocate space for ciphertext + NULL
     char *message =
-        malloc((size_t)message_length + 1);
-
+        malloc(ciphertext_length + 1);
+ 
     if (message == NULL)
         return NULL;
-
-    // receive from other side of message_length bytes exact
+ 
+    // receive the remaining ciphertext bytes exactly
     if (recv_all(
             sock_fd,
             message,
-            message_length
+            ciphertext_length
         ) < 0) {
-
+ 
         free(message);
         return NULL;
     }
-
+ 
     // construct the C string, append the NULL at the end to terminate
-    message[message_length] = '\0';
-
+    message[ciphertext_length] = '\0';
+ 
     if (length != NULL)
-        *length = message_length;
-
+        *length = ciphertext_length;
+ 
     return message;
 }
+ 
+

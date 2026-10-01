@@ -150,13 +150,28 @@ int main(void)
                 "\n"
             )] = '\0';
 
+            if (strlen(buffer) == 0) {
+                printf("[Server] > ");
+                fflush(stdout);
+                continue;
+            }
+
             printf("[Client] Encrypting message...\n");
+
+            char iv[IV_SIZE + 1];
+            if(generate_iv(iv) < 0) {
+                printf("IV generation failed.");
+                break;
+            }
+
+            printf("IV: %s\n", iv);
 
             // encrypt the message before sending 
             char *encrypted =
-                des_encrypt_message(
+                des_cbc_encrypt(
                     buffer,
-                    des_key
+                    des_key,
+                    iv
                 );
 
             if (encrypted == NULL) {
@@ -183,6 +198,7 @@ int main(void)
             // [4-byte length][ciphertext]
             if (send_message(
                     sock_fd,
+                    iv,
                     encrypted,
                     encrypted_length
                 ) < 0) {
@@ -207,13 +223,16 @@ int main(void)
         }
 
         // when server sends something
-        if (FD_ISSET(sock_fd, &read_fds)) {
+        else if (FD_ISSET(sock_fd, &read_fds)) {
 
             size_t encrypted_response_length;
+
+            char recv_iv[IV_SIZE + 1];
 
             char *encrypted_response =
                 receive_message(
                     sock_fd,
+                    recv_iv,
                     &encrypted_response_length
                 );
 
@@ -233,12 +252,15 @@ int main(void)
                 encrypted_response
             );
 
+            printf("Recv IV: %s\n", recv_iv);
+
 
             // decrypt the DES encrypted message
             char *plaintext =
-                des_decrypt_message(
+                des_cbc_decrypt(
                     encrypted_response,
-                    des_key
+                    des_key,
+                    recv_iv
                 );
 
             free(encrypted_response);

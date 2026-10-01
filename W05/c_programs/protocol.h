@@ -5,12 +5,17 @@
 
 #define HEADER_SIZE 4
 #define MAX_MESSAGE_SIZE 4096
+#define IV_SIZE 8
+
+// generates 8bytes IV, non-zero bytes random
+int generate_iv(char iv[IV_SIZE+1]);
 
 /*
  * >I + Message
  */
 int send_message(
     int sock_fd,
+    const char *iv,
     const char *message,
     size_t length
 );
@@ -21,6 +26,7 @@ int send_message(
  */
 char *receive_message(
     int sock_fd,
+    char iv[IV_SIZE+1],
     size_t *length
 );
 

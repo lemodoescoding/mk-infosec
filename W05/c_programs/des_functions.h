@@ -7,9 +7,9 @@ char *encrypt(
     char *rk[16]
 );
 
-static char *xor_hex_blocks(const char *a, const char *b);
-static char *des_encrypt_hex_block(const char *plaintext_hex, const char *key);
-static char *des_decrypt_hex_block(const char *ciphertext_hex, const char *key);
+// static char *xor_hex_blocks(const char *a, const char *b);
+// static char *des_encrypt_hex_block(const char *plaintext_hex, const char *key);
+// static char *des_decrypt_hex_block(const char *ciphertext_hex, const char *key);
 
 char *des_cbc_encrypt(const char *plaintext, const char *key, const char *iv);
 char *des_cbc_decrypt(const char *ciphertext, const char *key, const char *iv);

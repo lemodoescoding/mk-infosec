@@ -10,6 +10,10 @@
 #define DES_BLOCK_SIZE 8
 #define DES_HEX_BLOCK_SIZE 16
 
+static char *xor_hex_blocks(const char *a, const char *b);
+static char *des_encrypt_hex_block(const char *plaintext_hex, const char *key);
+static char *des_decrypt_hex_block(const char *ciphertext_hex, const char *key);
+
 /*
  * XOR two 16-character hexadecimal DES blocks.
  *

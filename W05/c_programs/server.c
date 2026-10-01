@@ -211,13 +211,29 @@ int main(void)
                 "\n"
             )] = '\0';
 
+            if (strlen(input) == 0) {
+                printf("[Server] > ");
+                fflush(stdout);
+                continue;
+            }
+
             printf("[Server] Encrypting message...\n");
+
+            char iv[IV_SIZE + 1];
+
+            if(generate_iv(iv) < 0) {
+                printf("IV generation failed.\n");
+                break;
+            }
+
+            printf("IV: %s\n", iv);
 
             // encrypt the server messsage before send
             char *encrypted_response =
-                des_encrypt_message(
+                des_cbc_encrypt(
                     input,
-                    des_key
+                    des_key,
+                    iv
                 );
 
             if (encrypted_response == NULL) {
@@ -244,6 +260,7 @@ int main(void)
             // sends packet structure [4-byte length][ciphertext]
             if (send_message(
                     client_fd,
+                    iv,
                     encrypted_response,
                     encrypted_response_length
                 ) < 0) {
@@ -267,13 +284,16 @@ int main(void)
         }
 
         // when client sent a message received by server
-        if (FD_ISSET(client_fd, &read_fds)) {
+        else if (FD_ISSET(client_fd, &read_fds)) {
 
             size_t encrypted_length;
+
+            char recv_iv[IV_SIZE + 1];
 
             char *encrypted =
                 receive_message(
                     client_fd,
+                    recv_iv,
                     &encrypted_length
                 );
 
@@ -293,11 +313,14 @@ int main(void)
                 encrypted
             );
 
+            printf("Recv IV: %s\n", recv_iv);
+
             // decrypt the DES encrypted message
             char *plaintext =
-                des_decrypt_message(
+                des_cbc_decrypt(
                     encrypted,
-                    des_key
+                    des_key,
+                    recv_iv
                 );
 
             free(encrypted);

@@ -1,0 +1,4 @@
+*.o
+*.gns3project
+client
+server

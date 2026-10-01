@@ -8,7 +8,10 @@ char *encrypt(
 );
 
 char *des_encrypt_block(const char *plaintext, const char *key);
-
 char *des_decrypt_block(const char *ciphertext, const char *key);
+
+char *des_encrypt_message(const char *plaintext, const char *key);
+char *des_decrypt_message(const char *ciphertext, const char *key);
+
 
 #endif

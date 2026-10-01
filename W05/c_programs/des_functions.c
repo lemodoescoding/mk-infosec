@@ -14,15 +14,7 @@ static char *xor_hex_blocks(const char *a, const char *b);
 static char *des_encrypt_hex_block(const char *plaintext_hex, const char *key);
 static char *des_decrypt_hex_block(const char *ciphertext_hex, const char *key);
 
-/*
- * XOR two 16-character hexadecimal DES blocks.
- *
- * Example:
- *      AABBCCDDEEFF0011
- * XOR  1122334455667788
- * --------------------
- *      BB99FF99B9997799
- */
+// XOR two 16-character hexadecimal DES blocks.
 static char *xor_hex_blocks(
     const char *a,
     const char *b
@@ -60,12 +52,8 @@ static char *xor_hex_blocks(
 }
 
 
-/*
- * Encrypt one hexadecimal DES block.
- *
- * This is similar to des_encrypt_block(), except that
- * the input is already hexadecimal rather than ASCII.
- */
+// function to encrypt one hexadecimal DES block in CBC mode.
+// The input and output are both hexadecimal.
 static char *des_encrypt_hex_block(
     const char *plaintext_hex,
     const char *key
@@ -101,11 +89,8 @@ static char *des_encrypt_hex_block(
     return cipher_hex;
 }
 
-/*
- * Decrypt one hexadecimal DES block.
- *
- * The input and output are both hexadecimal.
- */
+// function to decrypt one hexadecimal DES block in CBC mode.
+// The input and output are both hexadecimal.
 static char *des_decrypt_hex_block(
     const char *ciphertext_hex,
     const char *key
@@ -160,14 +145,11 @@ char *des_cbc_encrypt(
 {
     size_t plaintext_len = strlen(plaintext);
 
-    /*
-     * DES block size = 8 bytes.
-     *
-     * PKCS#7 padding:
-     * 8-byte plaintext -> 8 bytes padding
-     * 7-byte plaintext -> 1 byte padding
-     * etc.
-     */
+    // DES block size = 8 bytes.
+    // PKCS#7 padding:
+    // 8-byte plaintext -> 8 bytes padding
+    // 7-byte plaintext -> 1 byte padding
+    // etc.
     size_t padding =
         DES_BLOCK_SIZE -
         (plaintext_len % DES_BLOCK_SIZE);
@@ -193,25 +175,15 @@ char *des_cbc_encrypt(
         padded[i] = (char)padding;
     }
 
-    /*
-     * CBC IV must be exactly 8 ASCII bytes.
-     */
+    // CBC IV length must be exactly 8 ASCII bytes.
     if (strlen(iv) != DES_BLOCK_SIZE) {
         free(padded);
         return NULL;
     }
 
-    /*
-     * Convert IV from ASCII -> hexadecimal.
-     *
-     * Example:
-     *
-     * "12345678"
-     *
-     * becomes:
-     *
-     * 3132333435363738
-     */
+    // convert IV from ASCII -> hexadecimal.
+    // Example: "12345678"
+    // becomes: 3132333435363738
     char *previous =
         ascii2hex(iv);
 
@@ -220,10 +192,7 @@ char *des_cbc_encrypt(
         return NULL;
     }
 
-    /*
-     * Each 8-byte plaintext block becomes
-     * 16 hexadecimal ciphertext characters.
-     */
+    // for each 8-byte plaintext block becomes 16 hexadecimal ciphertext characters.
     char *ciphertext =
         malloc(padded_len * 2 + 1);
 
@@ -239,9 +208,8 @@ char *des_cbc_encrypt(
          offset < padded_len;
          offset += DES_BLOCK_SIZE) {
 
-        /*
-         * Convert plaintext block to hexadecimal.
-         */
+        
+        // convert plaintext block to hexadecimal .
         char block[DES_BLOCK_SIZE + 1];
 
         memcpy(
@@ -262,13 +230,9 @@ char *des_cbc_encrypt(
             return NULL;
         }
 
-        /*
-         * CBC:
-         *
-         * P[i] XOR C[i-1]
-         *
-         * where C[-1] = IV
-         */
+        // CBC:
+        // P[i] XOR C[i-1]
+        //where C[-1] = IV
         char *xored =
             xor_hex_blocks(
                 block_hex,
@@ -284,9 +248,7 @@ char *des_cbc_encrypt(
             return NULL;
         }
 
-        /*
-         * DES( P[i] XOR previous )
-         */
+        // using CBC mode enryption DES( P[i] XOR previous ) function
         char *encrypted =
             des_encrypt_hex_block(
                 xored,
@@ -302,15 +264,10 @@ char *des_cbc_encrypt(
             return NULL;
         }
 
-        /*
-         * Append ciphertext block.
-         */
+        // append ciphertext block.
         strcat(ciphertext, encrypted);
 
-        /*
-         * C[i] becomes the previous block
-         * for the next iteration.
-         */
+        // C[i] becomes the previous block for the next iteration.
         free(previous);
 
         previous = encrypted;
@@ -331,20 +288,14 @@ char *des_cbc_decrypt(
     size_t ciphertext_len =
         strlen(ciphertext);
 
-    /*
-     * Ciphertext must consist of complete
-     * 8-byte DES blocks.
-     *
-     * 8 bytes = 16 hexadecimal characters.
-     */
+    // ciphertext sent by client/server must consist of complete 8-byte DES blocks.
+    // 8 bytes = 16 hexadecimal characters.
     if (ciphertext_len == 0 ||
         ciphertext_len % DES_HEX_BLOCK_SIZE != 0) {
         return NULL;
     }
 
-    /*
-     * IV must be exactly 8 ASCII bytes.
-     */
+    // checks the IV must be exactly 8 ASCII bytes.
     if (strlen(iv) != DES_BLOCK_SIZE) {
         return NULL;
     }
@@ -367,9 +318,7 @@ char *des_cbc_decrypt(
     if (plaintext == NULL)
         return NULL;
 
-    /*
-     * Previous ciphertext block starts as IV.
-     */
+    // previous ciphertext block starts as IV for the first block sent.
     char *previous =
         ascii2hex(iv);
 
@@ -384,9 +333,7 @@ char *des_cbc_decrypt(
          offset < ciphertext_len;
          offset += DES_HEX_BLOCK_SIZE) {
 
-        /*
-         * Extract C[i].
-         */
+        // extract C[i] from the cipher block.
         char cipher_block[
             DES_HEX_BLOCK_SIZE + 1
         ];
@@ -401,9 +348,7 @@ char *des_cbc_decrypt(
             DES_HEX_BLOCK_SIZE
         ] = '\0';
 
-        /*
-         * DES_DECRYPT(C[i])
-         */
+        // using the CBC mode decryption function util DES_DECRYPT(C[i])
         char *decrypted =
             des_decrypt_hex_block(
                 cipher_block,
@@ -416,14 +361,10 @@ char *des_cbc_decrypt(
             return NULL;
         }
 
-        /*
-         * CBC:
-         *
-         * P[i] =
-         * DES_DECRYPT(C[i]) XOR C[i-1]
-         *
-         * where C[-1] = IV
-         */
+        // CBC:
+        // P[i] =
+        // DES_DECRYPT(C[i]) XOR C[i-1]
+        // where C[-1] = IV
         char *plain_hex =
             xor_hex_blocks(
                 decrypted,
@@ -438,10 +379,7 @@ char *des_cbc_decrypt(
             return NULL;
         }
 
-        /*
-         * Convert the resulting 8-byte block
-         * from hexadecimal to ASCII.
-         */
+        // converts the resulting 8-byte block from hexadecimal -> ASCII.
         char *plain_block =
             hex2ascii(plain_hex);
 
@@ -463,10 +401,7 @@ char *des_cbc_decrypt(
 
         free(plain_block);
 
-        /*
-         * C[i] becomes C[i-1] for the
-         * next iteration.
-         */
+        // C[i] becomes C[i-1] for the next iteration.
         free(previous);
 
         previous =
@@ -484,9 +419,7 @@ char *des_cbc_decrypt(
 
     plaintext[plaintext_offset] = '\0';
 
-    /*
-     * Remove PKCS#7 padding.
-     */
+    // removes the PKCS#7 padding.
     unsigned char padding =
         (unsigned char)
         plaintext[plaintext_offset - 1];
@@ -499,9 +432,7 @@ char *des_cbc_decrypt(
         return NULL;
     }
 
-    /*
-     * Verify all padding bytes.
-     */
+    // verify all padding bytes.
     for (size_t i = 0;
          i < padding;
          i++) {
@@ -516,9 +447,7 @@ char *des_cbc_decrypt(
         }
     }
 
-    /*
-     * Remove padding.
-     */
+    // remove padding to get the plaintext.
     plaintext[
         plaintext_offset - padding
     ] = '\0';
@@ -683,29 +612,23 @@ char *encrypt(const char *pt, char *rkb[16], char *rk[16])
     return cipher_text;
 }
 
+// EBC mode encryption block (per round it is independent and doesnt use IV)
 char *des_encrypt_block(const char *plaintext, const char *key)
 {
-    /*
-     * ASCII -> hexadecimal
-     *
-     * 8 ASCII bytes become 16 hexadecimal characters.
-     */
+    // convert from ASCII -> hexadecimal
+    // 8 ASCII bytes become 16 hexadecimal characters.
     char *plaintext_hex = ascii2hex(plaintext);
 
     if (plaintext_hex == NULL)
         return NULL;
 
-    /*
-     * Generate DES round keys.
-     */
+    // generate the DES round keys.
     char *rkb[16];
     char *rk[16];
 
     generate_round_keys(key, rkb, rk);
 
-    /*
-     * Encrypt one DES block.
-     */
+    // doing the encryption for one DES block.
     char *cipher_bin = encrypt(plaintext_hex, rkb, rk);
 
     if (cipher_bin == NULL) {
@@ -719,14 +642,9 @@ char *des_encrypt_block(const char *plaintext, const char *key)
         return NULL;
     }
 
-    /*
-     * Binary → hexadecimal.
-     */
+    // converts the cipher binary -> hexadecimal.
     char *cipher_hex = bin2hex(cipher_bin);
 
-    /*
-     * Cleanup.
-     */
     free(plaintext_hex);
     free(cipher_bin);
 
@@ -738,20 +656,16 @@ char *des_encrypt_block(const char *plaintext, const char *key)
     return cipher_hex;
 }
 
-
+// EBC mode decryption block (each round computed independently)
 char *des_decrypt_block(const char *ciphertext, const char *key)
 {
-    /*
-     * Generate DES round keys.
-     */
+    // generate DES round keys.
     char *rkb[16];
     char *rk[16];
 
     generate_round_keys(key, rkb, rk);
 
-    /*
-     * Reverse the round keys for DES decryption.
-     */
+    // get the reverse from the round keys for DES decryption.
     char *rkb_rev[16];
     char *rk_rev[16];
 
@@ -760,10 +674,7 @@ char *des_decrypt_block(const char *ciphertext, const char *key)
         rk_rev[i] = rk[15 - i];
     }
 
-    /*
-     * DES encryption function with reversed keys
-     * performs decryption.
-     */
+    // DES encryption function with reversed keys performs decryption.
     char *decrypted_bin = encrypt(ciphertext, rkb_rev, rk_rev);
 
     if (decrypted_bin == NULL) {
@@ -775,9 +686,7 @@ char *des_decrypt_block(const char *ciphertext, const char *key)
         return NULL;
     }
 
-    /*
-     * Binary → hexadecimal.
-     */
+    // converts from binary -> hexadecimal.
     char *decrypted_hex = bin2hex(decrypted_bin);
 
     if (decrypted_hex == NULL) {
@@ -791,14 +700,10 @@ char *des_decrypt_block(const char *ciphertext, const char *key)
         return NULL;
     }
 
-    /*
-     * Hexadecimal → ASCII.
-     */
+    // conver from hexadecimal -> ASCII.
     char *decrypted_ascii = hex2ascii(decrypted_hex);
 
-    /*
-     * Cleanup.
-     */
+    // cleanup the pointer
     free(decrypted_bin);
     free(decrypted_hex);
 
@@ -810,20 +715,20 @@ char *des_decrypt_block(const char *ciphertext, const char *key)
     return decrypted_ascii;
 }
 
-
+// EBC mode wrapper when doing message encryption from the input user
+// added the PKCS#7 padding and sending the DES block
 char *des_encrypt_message(const char *plaintext, const char *key)
 {
     size_t plaintext_len = strlen(plaintext);
 
-    /*
-     * PKCS#7 padding.
-     */
+    //calculates the offset for PKCS#7 padding.
     size_t padding =
         DES_BLOCK_SIZE - (plaintext_len % DES_BLOCK_SIZE);
 
     size_t padded_len =
         plaintext_len + padding;
 
+    // allocates space just as much for the pkcs and the DES block
     char *padded = malloc(padded_len);
 
     if (padded == NULL)
@@ -834,9 +739,7 @@ char *des_encrypt_message(const char *plaintext, const char *key)
     for (size_t i = plaintext_len; i < padded_len; i++)
         padded[i] = (char)padding;
 
-    /*
-     * Each 8-byte block produces 16 hex characters.
-     */
+    // each 8-byte block produces 16 hex characters.
     size_t output_size =
         padded_len * 2;
 
@@ -850,9 +753,7 @@ char *des_encrypt_message(const char *plaintext, const char *key)
 
     ciphertext[0] = '\0';
 
-    /*
-     * Encrypt each DES block.
-     */
+    // encrypt each DES block.
     for (size_t offset = 0;
          offset < padded_len;
          offset += DES_BLOCK_SIZE) {
@@ -867,6 +768,7 @@ char *des_encrypt_message(const char *plaintext, const char *key)
 
         block[DES_BLOCK_SIZE] = '\0';
 
+        // using the EBC wrapper
         char *encrypted =
             des_encrypt_block(block, key);
 
@@ -886,15 +788,14 @@ char *des_encrypt_message(const char *plaintext, const char *key)
     return ciphertext;
 }
 
-
+// EBC mode wrapper when doing message decryption from the other side (client/server)
+// added the PKCS#7 padding and sending the DES block
 char *des_decrypt_message(const char *ciphertext, const char *key)
 {
     size_t ciphertext_len =
         strlen(ciphertext);
 
-    /*
-     * Every DES block is 16 hexadecimal characters.
-     */
+    //Every DES block is 16 hexadecimal characters.
     if (ciphertext_len == 0 ||
         ciphertext_len % DES_HEX_BLOCK_SIZE != 0) {
 
@@ -907,6 +808,7 @@ char *des_decrypt_message(const char *ciphertext, const char *key)
     size_t plaintext_size =
         number_of_blocks * DES_BLOCK_SIZE;
 
+    // allocates just as much space needed to send the blocks
     char *plaintext =
         malloc(plaintext_size + 1);
 
@@ -915,9 +817,7 @@ char *des_decrypt_message(const char *ciphertext, const char *key)
 
     size_t plaintext_offset = 0;
 
-    /*
-     * Decrypt every block.
-     */
+    //Decrypt every block.
     for (size_t offset = 0;
          offset < ciphertext_len;
          offset += DES_HEX_BLOCK_SIZE) {
@@ -932,6 +832,7 @@ char *des_decrypt_message(const char *ciphertext, const char *key)
 
         cipher_block[DES_HEX_BLOCK_SIZE] = '\0';
 
+        // using the EBC wraper per block
         char *decrypted =
             des_decrypt_block(cipher_block, key);
 
@@ -953,9 +854,7 @@ char *des_decrypt_message(const char *ciphertext, const char *key)
 
     plaintext[plaintext_offset] = '\0';
 
-    /*
-     * Remove PKCS#7 padding.
-     */
+    // removes PKCS#7 padding
     unsigned char padding =
         (unsigned char)plaintext[plaintext_offset - 1];
 
@@ -967,9 +866,7 @@ char *des_decrypt_message(const char *ciphertext, const char *key)
         return NULL;
     }
 
-    /*
-     * Verify every padding byte.
-     */
+    // verifies every padding byte.
     for (size_t i = 0; i < padding; i++) {
 
         if ((unsigned char)

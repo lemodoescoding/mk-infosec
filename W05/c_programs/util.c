@@ -299,6 +299,7 @@ char *xor_bits(const char *a, const char *b) {
     return ans;
 }
 
+// converts ASCII input to its hex output representation
 char *ascii2hex(const char *ascii)
 {
     size_t len = strlen(ascii);
@@ -316,6 +317,7 @@ char *ascii2hex(const char *ascii)
     return hex;
 }
 
+// converts hex input to its ASCII string output representation (reverse)
 char *hex2ascii(const char *hex)
 {
     size_t len = strlen(hex);
@@ -343,6 +345,7 @@ char *hex2ascii(const char *hex)
     return ascii;
 }
 
+// helper for converting ASCII string to its binary representation
 char *ascii2bin(const char *ascii)
 {
     size_t len = strlen(ascii);

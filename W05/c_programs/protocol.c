@@ -10,10 +10,9 @@
 #include "protocol.h"
 
 
-/*
- * send() is allowed to send fewer bytes than requested.
- *
- */
+// wrapper for repeated block and send() is also allowed to return fewer bytes than requested.
+// keep calling send() until exactly 'length' bytes are transmitted to the sock_fd.
+
 static int send_all(
     int sock_fd,
     const void *data,
@@ -43,10 +42,8 @@ static int send_all(
 }
 
 
-/*
- * recv() is also allowed to return fewer bytes than requested.
- * Keep calling recv() until exactly 'length' bytes are received.
- */
+// wrapper for repeated block and recv() is also allowed to return fewer bytes than requested.
+// keep calling recv() until exactly 'length' bytes are received.
 static int recv_all(
     int sock_fd,
     void *data,
@@ -75,6 +72,7 @@ static int recv_all(
     return 0;
 }
 
+// for generating iv when sending the message and for each round and repeated block
 int generate_iv(char iv[IV_SIZE + 1]) {
     FILE *f = fopen("/dev/urandom", "rb");
 
@@ -101,6 +99,7 @@ int generate_iv(char iv[IV_SIZE + 1]) {
     return 0;
 }
 
+// send message to the sock_fd along with the IV byte
 int send_message(
     int sock_fd,
     const char *iv,
@@ -111,13 +110,11 @@ int send_message(
     // body size is IV_SIZE + the length
     size_t body_length = IV_SIZE + length;
 
-    // Our protocol uses a 32-bit length field.
+    // the protocol uses a 32-bit length field.
     if (body_length > UINT32_MAX || body_length > MAX_MESSAGE_SIZE)
         return -1;
 
-    /*
-     * Convert host byte order to network byte order.
-     */
+    // convert host byte order to network byte order.
     uint32_t network_length =
         htonl((uint32_t)body_length);
 
@@ -154,7 +151,7 @@ int send_message(
     return 0;
 }
 
-
+// receive message from the sock_fd
 char *receive_message(
     int sock_fd,
     char iv[IV_SIZE + 1],

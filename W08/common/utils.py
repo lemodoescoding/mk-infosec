@@ -55,5 +55,24 @@ def validate_block(block: bytes) -> None:
 
 # validate_aes128_key(key)
 def validate_aes128_key(key: bytes) -> None:
-    if len(key) != 16:
+    if not isinstance(key, bytes) or len(key) != 16:
         raise ValueError("AES-128 key must be exactly 16 bytes")
+
+# converts ASCII string to bytes, and rejecting any non-ASCII chars
+def ascii_to_bytes(value: str, field_name: str) -> bytes:
+    if not isinstance(value, str):
+        raise TypeError(f"{field_name} must be a string")
+
+    try:
+        return value.encode("ascii")
+    except UnicodeEncodeError as exc:
+        raise ValueError(f"{field_name} must contain ASCII characters only") from exc
+
+# converts the key for the AES from ASCII to bytes
+def key_from_ascii(key: str) -> bytes:
+    key_bytes = ascii_to_bytes(key, "AES key")
+
+    if len(key_bytes) != 16:
+        raise ValueError("AES-128 key must be exactly 16 ASCII bytes")
+
+    return key_bytes

@@ -34,17 +34,38 @@ def send_json(sock: socket.socket, message: dict) -> None:
 
     sock.sendall(_HEADER.pack(len(payload)) + payload)
 
+# def recv_json(sock: socket.socket) -> dict:
+#     # TODO: receive one length-prefixed JSON object
+#     # struct pack is !I
+#     (length, ) = _HEADER.unpack(recv_exact(sock, _HEADER.size))
+#
+#     if length == 0 or length > MAX_MESSAGE_SIZE:
+#         raise ValueError("invalid message length")
+#
+#     payload = recv_exact(sock, length)
+#
+#     return validate_message(json.loads(payload.decode("ascii")))
 def recv_json(sock: socket.socket) -> dict:
-    # TODO: receive one length-prefixed JSON object
-    # struct pack is !I
-    (length, ) = _HEADER.unpack(recv_exact(sock, _HEADER.size))
+    header = recv_exact(sock, _HEADER.size)
+    (length,) = _HEADER.unpack(header)
 
     if length == 0 or length > MAX_MESSAGE_SIZE:
-        raise ValueError("invalid message length")
+        raise ValueError(
+            f"invalid message length: {length}; "
+            f"header_hex={header.hex()}; "
+            f"MAX_MESSAGE_SIZE={MAX_MESSAGE_SIZE}"
+        )
 
     payload = recv_exact(sock, length)
 
-    return validate_message(json.loads(payload.decode("ascii")))
+    try:
+        message = json.loads(payload.decode("ascii"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(
+            f"invalid JSON payload: {payload[:100]!r}"
+        ) from exc
+
+    return validate_message(message)
 
 def create_tcp_server(host: str, port: int, backlog: int = 5) -> socket.socket:
     # TODO: crate and return a listening TCP socket, caller owns its lifecycle

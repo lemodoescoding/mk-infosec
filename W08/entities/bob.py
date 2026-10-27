@@ -9,6 +9,8 @@ import socket
 import sys
 import threading
 
+from typing import Optional
+
 from config.settings import (
     AES_MODE,
     BOB_HOST,
@@ -62,7 +64,7 @@ def _describe_key(key: bytes) -> str:
     return f"{key.hex()}  (AES-{8 * len(key)}, {len(key)} bytes)"
 
 
-def _choose_options(mode: str | None, key_size: int | None) -> tuple[str, int]:
+def _choose_options(mode: Optional[str], key_size: Optional[int]) -> tuple[str, int]:
     if mode is None:
         while True:
             answer = input(f"[{NAME}] AES mode [ECB/CBC] (default {AES_MODE}): ").strip().upper()
@@ -192,7 +194,7 @@ def _handle_command(
     return session_key, mode
 
 
-def _accept_session_ticket(conn: socket.socket, expected_key_size: int | None = None) -> bytes:
+def _accept_session_ticket(conn: socket.socket, expected_key_size: Optional[int] = None) -> bytes:
     message = recv_json(conn)
     if message.get("type") != SESSION_TICKET:
         send_json(conn, create_message(ERROR, reason="Expected session ticket"))
@@ -268,7 +270,7 @@ def _send_chat_message(sock: socket.socket, session_key: bytes, text: str, mode:
     print(f"Sending ciphertext ({len(ciphertext) // 2} bytes):\n{ciphertext}")
 
 
-def _receive_chat_message(sock: socket.socket, session_key: bytes, mode: str = AES_MODE, debug_enabled: bool = False) -> str | None:
+def _receive_chat_message(sock: socket.socket, session_key: bytes, mode: str = AES_MODE, debug_enabled: bool = False) -> Optional[str]:
     message = recv_json(sock)
 
     if message.get("type") == ERROR:
@@ -318,7 +320,7 @@ def _receive_chat_message(sock: socket.socket, session_key: bytes, mode: str = A
     return plaintext
 
 
-def _read_console(lines: queue.Queue[str | None]) -> None:
+def _read_console(lines: queue.Queue[Optional[str]]) -> None:
     while True:
         line = sys.stdin.readline()
         if not line:
@@ -331,7 +333,7 @@ def chat_loop(
     sock: socket.socket,
     session_key: bytes,
     mode: str = AES_MODE,
-    key_seed: bytes | None = None,
+    key_seed: Optional[bytes] = None,
 ) -> None:
     # Watch the socket with select; a background reader handles console input on Windows.
     """
@@ -346,7 +348,7 @@ def chat_loop(
     print(f"[{NAME}] Active session key: {_describe_key(session_key)}")
     print(f"[{NAME}] Outgoing AES mode: {mode}")
     print(f"[{NAME}] Type /help for runtime commands (e.g. changing the AES key without restarting).")
-    lines: queue.Queue[str | None] = queue.Queue()
+    lines: queue.Queue[Optional[str]] = queue.Queue()
     threading.Thread(target=_read_console, args=(lines,), daemon=True).start()
     print(f"[{NAME}] > ", end="", flush=True)
 
@@ -407,7 +409,7 @@ def chat_loop(
             print(f"\n[{NAME}] > ", end="", flush=True)
 
 
-def handle_alice(conn: socket.socket, address, expected_key_size: int | None = None, mode: str = AES_MODE) -> None:
+def handle_alice(conn: socket.socket, address, expected_key_size: Optional[int] = None, mode: str = AES_MODE) -> None:
     conn.settimeout(SOCKET_TIMEOUT)
     try:
         session_key = _accept_session_ticket(conn, expected_key_size)

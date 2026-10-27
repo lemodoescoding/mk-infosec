@@ -33,7 +33,8 @@ from common.protocol import (
 from common.utils import (
     generate_random_bytes,
     key_from_ascii,
-    serialize_payload
+    serialize_payload,
+    validate_aes_key
 )
 
 from crypto.modes import encrypt_text
@@ -97,9 +98,9 @@ def validate_request(request: dict, master_keys: dict[str, bytes]) -> tuple[str,
     if not NONCE_RE.fullmatch(nonce):
         raise KDCError("nonce must be consist of alphanumeric only and between 1-64 len")
 
-    for identity, key in master_keys.items():
-        if not isinstance(key, bytes) or len(key) != 16:
-            raise KDCError(f"invalid AES-128 master key for {identity}")
+    # for identity, key in master_keys.items():
+    #     if not isinstance(key, bytes) or len(key) != 16:
+    #         raise KDCError(f"invalid AES-128 master key for {identity}")
 
     return requester, target, nonce
 
@@ -110,13 +111,8 @@ def build_key_response(
 ) -> dict:
     requester, target, nonce = validate_request(request, master_keys)
     _remember_nonce(requester, nonce)
-
-    session_key = generate_random_bytes(SESSION_KEY_SIZE)
-
-    if not isinstance(session_key, bytes) or len(session_key) != 16:
-        raise KDCError("session key generated from utils returned invalid key")
  
-    ks_hex = session_key.hex()  # Ks
+    ks_hex = generate_random_bytes(SESSION_KEY_SIZE).hex()  # Ks
  
     # E(Ka, [Ks || ID_A || ID_B || N1])
     # E(Kb, [Ks || ID_A])  -> Bob's ticket
@@ -193,6 +189,7 @@ def handle_client(conn: socket.socket, address: str, master_keys: dict[str, byte
 
 
 def main() -> None:
+    validate_aes_key(bytes(SESSION_KEY_SIZE))
     master_keys = load_master_keys()
     with create_tcp_server(KDC_HOST, KDC_PORT) as server:
         print(f"[KDC] Listening on {KDC_HOST}:{KDC_PORT}")

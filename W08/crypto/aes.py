@@ -111,7 +111,7 @@ class AES:
             list(key[4 * i:4 * i + 4]) for i in range(nk)
         ]
 
-        total_words = AES_NB * (AES_ROUNDS + 1)
+        total_words = AES_NB * (nr + 1)
 
         for i in range(nk, total_words):
             temp = words[i - 1].copy()
@@ -122,6 +122,10 @@ class AES:
                 rcon_word = RCON[i // nk]
                 temp[0] ^= (rcon_word >> 24) & 0xFF
 
+            elif nk > 6 and i % nk == 4:
+                # AES-256 only: an extra SubWord halfway through every key block
+                temp = self._sub_word(temp)
+
             new_word = [
                 words[i - nk][j] ^ temp[j] for j in range(4)
             ]
@@ -130,7 +134,7 @@ class AES:
 
         round_keys = []
 
-        for round_number in range(AES_ROUNDS + 1):
+        for round_number in range(nr + 1):
             first_word = round_number * AES_NB
             key_bytes = []
 

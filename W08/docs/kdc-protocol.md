@@ -10,5 +10,11 @@ Record for every step:
 5. Nonce, timestamp, or replay-protection requirements
 6. Expected response and failure cases
 
-Do not assume a generic KDC flow is identical to the course protocol. Avoid logging session keys,
-master keys, or decrypted secret payloads.
+The KDC protocol is determined to be like below format and sequence
+ 
+(1) A   -> KDC : ID_A || ID_B || N1
+(2) KDC -> A   : E(Ka, { Ks, ID_A, ID_B, N1, E(Kb, [Ks || ID_A]) })
+(3) A   -> B   : E(Kb, [Ks || ID_A])          (ticket, forwarded by Alice)
+ 
+The ticket is nested inside the payload that only Alice can decrypt, so the
+KDC response carries a single protected object ("response").

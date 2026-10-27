@@ -46,7 +46,7 @@ def generate_random_bytes(n: int) -> bytes:
 
 # validate_aes_key(key)
 def validate_aes_key(key: bytes) -> None:
-    if len(key) not in (16, 24, 32):
+    if not isinstance(key, bytes) or len(key) not in (16, 24, 32):
         raise ValueError("AES key must be 16, 24, or 32 bytes")
 
 # validate_block(block)
@@ -73,8 +73,7 @@ def ascii_to_bytes(value: str, field_name: str) -> bytes:
 def key_from_ascii(key: str) -> bytes:
     key_bytes = ascii_to_bytes(key, "AES key")
 
-    if len(key_bytes) != 16:
-        raise ValueError("AES-128 key must be exactly 16 ASCII bytes")
+    validate_aes_key(key_bytes)
 
     return key_bytes
 

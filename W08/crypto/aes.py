@@ -1,4 +1,4 @@
-from common.utils import validate_aes128_key
+from common.utils import validate_aes128_key, validate_aes_key
 from config.constants import (
     AES_BLOCK_SIZE,
     AES_KEY_SIZE,
@@ -69,12 +69,14 @@ from config.constants import (
 
 class AES:
     def __init__(self, key: bytes):
-        validate_aes128_key(key)
+        validate_aes_key(key)
 
         if len(SBOX) != 256 or len(INV_SBOX) != 256:
             raise ValueError("SBOX and INV_SBOX must each contains the 256 value")
 
         self.key = key
+        self.nk = len(key) // 4
+        self.nr = self.nk + 6
         self.round_keys = self.key_expansion(key)
 
     @staticmethod
@@ -100,25 +102,28 @@ class AES:
         return [SBOX[byte] for byte in word]
 
     def key_expansion(self, key: bytes) -> list[bytes]:
-        validate_aes128_key(key)
+        validate_aes_key(key)
+
+        nk = len(key) // 4
+        nr = nk + 6
 
         words = [
-            list(key[4 * i:4 * i + 4]) for i in range(AES_NK)
+            list(key[4 * i:4 * i + 4]) for i in range(nk)
         ]
 
         total_words = AES_NB * (AES_ROUNDS + 1)
 
-        for i in range(AES_NK, total_words):
+        for i in range(nk, total_words):
             temp = words[i - 1].copy()
 
-            if i % AES_NK == 0:
+            if i % nk == 0:
                 temp = self._sub_word(self._rot_word(temp))
 
-                rcon_word = RCON[i // AES_NK]
+                rcon_word = RCON[i // nk]
                 temp[0] ^= (rcon_word >> 24) & 0xFF
 
             new_word = [
-                words[i - AES_NK][j] ^ temp[j] for j in range(4)
+                words[i - nk][j] ^ temp[j] for j in range(4)
             ]
             
             words.append(new_word)
@@ -292,7 +297,7 @@ class AES:
         self.add_round_key(state, self.round_keys[0])
 
         # Rounds 1 through 9 for AES-128.
-        for round_number in range(1, AES_ROUNDS):
+        for round_number in range(1, self.nr):
             self.sub_bytes(state)
             self.shift_rows(state)
             self.mix_columns(state)
@@ -304,7 +309,7 @@ class AES:
         # Final round: no MixColumns.
         self.sub_bytes(state)
         self.shift_rows(state)
-        self.add_round_key(state, self.round_keys[AES_ROUNDS])
+        self.add_round_key(state, self.round_keys[self.nr])
 
         return self._state_to_bytes(state)
 
@@ -316,10 +321,10 @@ class AES:
         state = self._bytes_to_state(ciphertext)
 
         # Start with the final round key.
-        self.add_round_key(state, self.round_keys[AES_ROUNDS])
+        self.add_round_key(state, self.round_keys[self.nr])
 
         # Rounds 9 down to 1.
-        for round_number in range(AES_ROUNDS - 1, 0, -1):
+        for round_number in range(self.nr - 1, 0, -1):
             self.inv_shift_rows(state)
             self.inv_sub_bytes(state)
             self.add_round_key(

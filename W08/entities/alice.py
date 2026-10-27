@@ -31,6 +31,7 @@ from common.protocol import (
 )
 from common.utils import key_from_ascii, validate_aes_key
 from crypto.modes import decrypt_text, encrypt_text
+from crypto.aes_trace import TracedAES, traced_decrypt_text, traced_encrypt_text
 
 # identifer for both client/server -> alice for server, bob for client
 NAME = "Alice"
@@ -108,6 +109,16 @@ def _parse_key_argument(value: str) -> bytes:
 
     return key_from_ascii(value)
 
+def _display_configuration(session_key: bytes, mode: str, debug_enabled: bool) -> None:
+    # Session keys are usually random bytes, so the ASCII view escapes non-printable
+    # and non-ASCII bytes instead of silently replacing them.
+    ascii_view = session_key.decode("ascii", errors="backslashreplace")
+    print(f"[{NAME}] Current local configuration:")
+    print(f"  Key (ASCII/escaped): {ascii_view!r}")
+    print(f"  Key (hex):           {session_key.hex()}")
+    print(f"  Key size:            AES-{len(session_key) * 8} ({len(session_key)} bytes)")
+    print(f"  Mode:                {mode.upper()}")
+    print(f"  Debug tracing:       {'ON' if debug_enabled else 'OFF'}")
 
 def _print_help() -> None:
     print(f"[{NAME}] Runtime commands:")
@@ -116,6 +127,8 @@ def _print_help() -> None:
     print("  /key 0x<hex>         switch to a new key given as hex (32/48/64 hex chars)")
     print("  /keysize <bits>      switch to AES-128, AES-192, or AES-256")
     print("  /mode <ECB|CBC>      select the mode used for outgoing messages")
+    print("  /debug               toggle detailed AES encryption/decryption tracing")
+    print("  /config              show this side's current key, key size, and mode")
     print("  /help                show this message")
     print("  /exit | /quit        close the chat")
 
@@ -265,10 +278,15 @@ def establish_session(
     return sock, session_key
 
 
-def _send_chat_message(sock: socket.socket, session_key: bytes, text: str, mode: str) -> None:
+def _send_chat_message(sock: socket.socket, session_key: bytes, text: str, mode: str, debug_enabled: bool = False) -> None:
     print(f"[{NAME}] Encrypting message...")
 
-    payload = encrypt_text(session_key, text, mode)
+    if debug_enabled:
+        print(f"[{NAME}] DEBUG tracing is ON: showing AES key expansion, padding, mode operations, and every AES round.")
+        traced_aes = TracedAES(session_key)
+        payload = traced_encrypt_text(traced_aes, text, mode)
+    else:
+        payload = encrypt_text(session_key, text, mode)
 
     if payload.get("iv"):
         print(f"IV: {payload['iv']}")
@@ -280,7 +298,7 @@ def _send_chat_message(sock: socket.socket, session_key: bytes, text: str, mode:
     print(f"Sending ciphertext ({len(ciphertext) // 2} bytes):\n{ciphertext}")
 
 
-def _receive_chat_message(sock: socket.socket, session_key: bytes, mode: str = AES_MODE) -> str | None:
+def _receive_chat_message(sock: socket.socket, session_key: bytes, mode: str = AES_MODE, debug_enabled: bool = False) -> str | None:
     message = recv_json(sock)
 
     if message.get("type") == ERROR:
@@ -311,7 +329,12 @@ def _receive_chat_message(sock: socket.socket, session_key: bytes, mode: str = A
 
     print(f"[{NAME}] Decrypting message...")
     try:
-        plaintext = decrypt_text(session_key, payload)
+        if debug_enabled:
+            print(f"[{NAME}] DEBUG tracing is ON: showing AES key expansion, mode operations, and every inverse AES round.")
+            traced_aes = TracedAES(session_key)
+            plaintext = traced_decrypt_text(traced_aes, payload)
+        else:
+            plaintext = decrypt_text(session_key, payload)
     except (ValueError, UnicodeDecodeError) as exc:
         # most likely cause during a demo: the key was just changed on one side only
         # the other side must retype the key, the current implementation 
@@ -346,6 +369,9 @@ def chat_loop(
     the /key command can reassign it on the fly: every subsequent send/
     receive picks up the new value immediately, with no restart needed."""
 
+    # here for toggleable debug
+    debug_enabled = False
+
     key_seed = session_key if key_seed is None else key_seed
     print(f"[{NAME}] Active session key: {_describe_key(session_key)}")
     print(f"[{NAME}] Outgoing AES mode: {mode}")
@@ -370,15 +396,32 @@ def chat_loop(
                 break
 
             elif text.startswith(COMMAND_PREFIX):
-                session_key, mode = _handle_command(text, session_key, key_seed, mode)
+                command_parts = text[len(COMMAND_PREFIX):].split(maxsplit=1)
+                command = command_parts[0].lower() if command_parts else ""
+
+                if command == "debug":
+                    if len(command_parts) > 1:
+                        print(f"[{NAME}] Usage: /debug (toggle tracing on/off).")
+                    else:
+                        debug_enabled = not debug_enabled
+                        print(f"[{NAME}] Detailed AES tracing {'ENABLED' if debug_enabled else 'DISABLED'}.")
+
+                elif command == "config":
+                    if len(command_parts) > 1:
+                        print(f"[{NAME}] Usage: /config")
+                    else:
+                        _display_configuration(session_key, mode, debug_enabled)
+
+                else:
+                    session_key, mode = _handle_command(text, session_key, key_seed, mode)
                 print(f"[{NAME}] > ", end="", flush=True)
             else:
-                _send_chat_message(sock, session_key, text, mode)
+                _send_chat_message(sock, session_key, text, mode, debug_enabled)
                 print(f"\n[{NAME}] > ", end="", flush=True)
 
         if readable:
             try:
-                plaintext = _receive_chat_message(sock, session_key, mode)
+                plaintext = _receive_chat_message(sock, session_key, mode, debug_enabled)
             except (ConnectionError, OSError, ValueError, json.JSONDecodeError) as exc:
                 print(f"\n[{NAME}] Connection to {PEER} lost: {exc}")
                 break

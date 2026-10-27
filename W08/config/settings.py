@@ -1,11 +1,11 @@
 # KDC, Bob, Alice IP address and listening port
-KDC_HOST = "192.168.100.100"
+KDC_HOST = "0.0.0.0"
 KDC_PORT = 5000
 
-ALICE_HOST = "192.168.100.101"
+ALICE_HOST = "0.0.0.0"
 ALICE_PORT = 5001
 
-BOB_HOST = "192.168.100.102"
+BOB_HOST = "0.0.0.0"
 BOB_PORT = 5002
 
 # Network timeout constant

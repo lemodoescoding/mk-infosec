@@ -6,10 +6,10 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 export PYTHONPATH="${PROJECT_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 export KDC_KEY_ALICE="${KDC_KEY_ALICE:-alice-master-key}"
-export KDC_HOST="${KDC_HOST:-192.168.100.100}"
+export KDC_HOST="${KDC_HOST:-0.0.0.0}"
 export KDC_PORT="${KDC_PORT:-5000}"
-export BOB_HOST="${BOB_HOST:-192.168.100.102}"
+export BOB_HOST="${BOB_HOST:-0.0.0.0}"
 export BOB_PORT="${BOB_PORT:-5002}"
 
 cd "${PROJECT_ROOT}"
-python -m entities.alice
+python3 -m entities.alice

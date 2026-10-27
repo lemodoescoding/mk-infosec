@@ -280,7 +280,7 @@ def _send_chat_message(sock: socket.socket, session_key: bytes, text: str, mode:
     print(f"Sending ciphertext ({len(ciphertext) // 2} bytes):\n{ciphertext}")
 
 
-def _receive_chat_message(sock: socket.socket, session_key: bytes) -> str | None:
+def _receive_chat_message(sock: socket.socket, session_key: bytes, mode: str = AES_MODE) -> str | None:
     message = recv_json(sock)
 
     if message.get("type") == ERROR:
@@ -300,6 +300,14 @@ def _receive_chat_message(sock: socket.socket, session_key: bytes) -> str | None
     print(f"\n[{NAME}] Received ciphertext ({len(ciphertext) // 2} bytes):\n{ciphertext}")
     if payload.get("iv"):
         print(f"Recv IV: {payload['iv']}")
+
+    incoming_mode = payload.get("mode")
+    if not isinstance(incoming_mode, str) or incoming_mode.upper() != mode.upper():
+        print(
+            f"[{NAME}] Rejected message from {PEER}: shared mode is {mode.upper()}, "
+            f"but the message declares {incoming_mode!r}."
+        )
+        return ""
 
     print(f"[{NAME}] Decrypting message...")
     try:
@@ -370,7 +378,7 @@ def chat_loop(
 
         if readable:
             try:
-                plaintext = _receive_chat_message(sock, session_key)
+                plaintext = _receive_chat_message(sock, session_key, mode)
             except (ConnectionError, OSError, ValueError, json.JSONDecodeError) as exc:
                 print(f"\n[{NAME}] Connection to {PEER} lost: {exc}")
                 break

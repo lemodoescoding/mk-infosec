@@ -1,8 +1,8 @@
 ## Tugas 3 Information Security B
 
-| Nama | NRP | Kelas |
-| --------------- | --------------- | --------------- |
-| Ahmad Satrio Arrohman | 5025241061 | KI - B |
+| Nama                   | NRP        | Kelas  |
+| ---------------------- | ---------- | ------ |
+| Ahmad Satrio Arrohman  | 5025241061 | KI - B |
 | Danish Faiq Ibad Yuadi | 5025241038 | KI - B |
 
 Educational project implementing AES manually and using a Key Distribution Center (KDC)
@@ -18,23 +18,39 @@ to establish a shared session key between Alice and Bob.
 - `common/utils.py`: reusable byte, padding, and validation helpers
 - `common/protocol.py`: message type names and message constructors
 - `common/network.py`: TCP framing helpers
-- `crypto/aes.py`: manual AES block cipher implementation
+- `crypto/`: manual AES block cipher, AES modes, and tracing utilities
 - `entities/kdc.py`: KDC process
 - `entities/alice.py`: Alice client
 - `entities/bob.py`: Bob client
 - `docs/`: architecture, protocol, and Wireshark notes
+- `scripts/`: shell scripts for running KDC, Bob, and Alice
 
 ## Requirements
 
-Python 3.10+; the core scaffold uses the Python standard library only.
+Python 3.9 or newer; the core implementation uses the Python standard library only.
 
-## Before running
+## Running the demo
 
-1. Implement AES in `crypto/aes.py` and fill in the tables in `config/constants.py`.
-2. Verify AES against published known-answer test vectors.
-3. Implement the exact KDC protocol specified by your lecturer.
-4. Configure the IP addresses and routes in `config/settings.py`.
-5. Do not commit real pre-shared keys or other secrets.
-6. Run each entity in its own VM/process after its implementation is complete.
+Run each command in a separate terminal, from this `W08` directory. Start the
+processes in this order:
 
-The current files intentionally contain placeholders and are not yet a functioning system.
+```bash
+bash scripts/run_kdc.sh
+```
+
+```bash
+bash scripts/run_bob.sh
+```
+
+```bash
+bash scripts/run_alice.sh
+```
+
+Alice and Bob prompt for the AES mode (`ECB` or `CBC`) and key size
+(`128`, `192`, or `256` bits); choose the same key size on both.
+
+The scripts use localhost defaults for a same-machine demo. For separate
+machines, configure the KDC and Bob host/port environment variables to use
+addresses reachable by Alice and update the KDC/Bob bind addresses as needed.
+The bundled master keys are demo defaults only; do not use them to protect real
+data.

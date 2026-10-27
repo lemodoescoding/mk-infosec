@@ -10,4 +10,4 @@ export BOB_HOST="${BOB_HOST:-127.0.0.1}"
 export BOB_PORT="${BOB_PORT:-9002}"
 
 cd "${PROJECT_ROOT}"
-python3 -m entities.bob
+python -m entities.bob

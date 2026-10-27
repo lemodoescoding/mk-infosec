@@ -9,4 +9,4 @@ export KDC_KEY_ALICE="${KDC_KEY_ALICE:-alice-master-key}"
 export KDC_KEY_BOB="${KDC_KEY_BOB:-bob---master-key}"
 
 cd "${PROJECT_ROOT}"
-python3 -m entities.kdc
+python -m entities.kdc

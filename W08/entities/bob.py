@@ -1,8 +1,13 @@
+import argparse
+import hashlib
+import hmac
 import json
 import os
+import queue
 import select
 import socket
 import sys
+import threading
 
 from config.settings import (
     AES_MODE,
@@ -56,6 +61,35 @@ def _describe_key(key: bytes) -> str:
     return f"{key.hex()}  (AES-{8 * len(key)}, {len(key)} bytes)"
 
 
+def _choose_options(mode: str | None, key_size: int | None) -> tuple[str, int]:
+    if mode is None:
+        while True:
+            answer = input(f"[{NAME}] AES mode [ECB/CBC] (default {AES_MODE}): ").strip().upper()
+            mode = answer or AES_MODE.upper()
+            if mode in {"ECB", "CBC"}:
+                break
+            print(f"[{NAME}] Choose ECB or CBC.")
+
+    if key_size is None:
+        while True:
+            answer = input(f"[{NAME}] AES key size [128/192/256] (default 128): ").strip()
+            try:
+                key_size = int(answer or "128")
+            except ValueError:
+                print(f"[{NAME}] Choose 128, 192, or 256.")
+                continue
+            if key_size in {128, 192, 256}:
+                break
+            print(f"[{NAME}] Choose 128, 192, or 256.")
+
+    return mode, key_size
+
+
+def _derive_key_size(key_seed: bytes, key_size: int) -> bytes:
+    context = b"mk-infosec runtime AES key size v1:" + str(key_size).encode("ascii")
+    return hmac.new(key_seed, context, hashlib.sha256).digest()[:key_size // 8]
+
+
 def _parse_key_argument(value: str) -> bytes:
     # accepts either a literal ASCII key (16/24/32 chars, same shape as DEFAULT_KEYS / KDC_KEY_*) or a hex-encoded key via "0x..." / "hex:...
     value = value.strip()
@@ -80,11 +114,18 @@ def _print_help() -> None:
     print("  /key                 show the active AES session key")
     print("  /key <ascii-key>     switch to a new 16/24/32-character ASCII key")
     print("  /key 0x<hex>         switch to a new key given as hex (32/48/64 hex chars)")
+    print("  /keysize <bits>      switch to AES-128, AES-192, or AES-256")
+    print("  /mode <ECB|CBC>      select the mode used for outgoing messages")
     print("  /help                show this message")
-    print("  exit | quit          close the chat")
+    print("  /exit | /quit        close the chat")
 
 
-def _handle_command(text: str, session_key: bytes) -> bytes:
+def _handle_command(
+    text: str,
+    session_key: bytes,
+    key_seed: bytes,
+    mode: str,
+) -> tuple[bytes, str]:
     # handle command does not touch the tcp communication part, so changing key is safe (hopefully)
 
     parts = text[len(COMMAND_PREFIX):].split(maxsplit=1)
@@ -94,28 +135,50 @@ def _handle_command(text: str, session_key: bytes) -> bytes:
     if command == "key":
         if not argument:
             print(f"[{NAME}] Active session key: {_describe_key(session_key)}")
-            return session_key
+            return session_key, mode
 
         try:
             new_key = _parse_key_argument(argument)
         except (ValueError, TypeError) as exc:
             print(f"[{NAME}] Could not change key: {exc}")
             print(f"[{NAME}] Use /help for the accepted key formats.")
-            return session_key
+            return session_key, mode
 
         print(f"[{NAME}] Session key changed -> {_describe_key(new_key)}")
         print(f"[{NAME}] Note: {PEER} must switch to the same key (/key) for messages to decrypt correctly.")
-        return new_key
+        return new_key, mode
+
+    if command == "keysize":
+        try:
+            key_size = int(argument)
+        except ValueError:
+            print(f"[{NAME}] Use /keysize 128, /keysize 192, or /keysize 256.")
+            return session_key, mode
+        if key_size not in {128, 192, 256}:
+            print(f"[{NAME}] Use /keysize 128, /keysize 192, or /keysize 256.")
+            return session_key, mode
+        new_key = _derive_key_size(key_seed, key_size)
+        print(f"[{NAME}] Session key changed -> {_describe_key(new_key)}")
+        print(f"[{NAME}] {PEER} must run /keysize {key_size} too before sending messages.")
+        return new_key, mode
+
+    if command == "mode":
+        selected_mode = argument.upper()
+        if selected_mode not in {"ECB", "CBC"}:
+            print(f"[{NAME}] Use /mode ECB or /mode CBC.")
+            return session_key, mode
+        print(f"[{NAME}] Outgoing AES mode set to {selected_mode}.")
+        return session_key, selected_mode
 
     if command in ("help", "?"):
         _print_help()
-        return session_key
+        return session_key, mode
 
     print(f"[{NAME}] Unknown command: {COMMAND_PREFIX}{command}. Type /help for options.")
-    return session_key
+    return session_key, mode
 
 
-def _accept_session_ticket(conn: socket.socket) -> bytes:
+def _accept_session_ticket(conn: socket.socket, expected_key_size: int | None = None) -> bytes:
     message = recv_json(conn)
     if message.get("type") != SESSION_TICKET:
         send_json(conn, create_message(ERROR, reason="Expected session ticket"))
@@ -131,26 +194,50 @@ def _accept_session_ticket(conn: socket.socket) -> bytes:
     if requester != PEER:
         raise ValueError("Ticket requester mismatch")
 
-    session_key = bytes.fromhex(session_key_hex)
-    if len(session_key) not in (16, 24, 32):
+    base_session_key = bytes.fromhex(session_key_hex)
+    if len(base_session_key) not in (16, 24, 32):
         raise ValueError("Session key size is invalid")
+
+    key_setup = message.get("key_setup")
+    if key_setup is None:
+        session_key = base_session_key
+    else:
+        if not isinstance(key_setup, dict):
+            raise ValueError("Session key setup payload is invalid")
+        setup = json.loads(decrypt_text(base_session_key, key_setup))
+        if not isinstance(setup, dict):
+            raise ValueError("Session key setup must be a JSON object")
+        selected_key_size = setup.get("key_size")
+        if isinstance(selected_key_size, bool) or selected_key_size not in (128, 192, 256):
+            raise ValueError("Selected AES key size is invalid")
+        session_key_hex = setup.get("session_key")
+        if not isinstance(session_key_hex, str):
+            raise ValueError("Selected AES key is missing")
+        session_key = bytes.fromhex(session_key_hex)
+        if len(session_key) * 8 != selected_key_size:
+            raise ValueError("Selected AES key does not match its declared size")
+
+    if expected_key_size is not None and len(session_key) * 8 != expected_key_size:
+        raise ValueError(
+            f"Alice selected AES-{len(session_key) * 8}, but Bob is configured for AES-{expected_key_size}"
+        )
 
     send_json(conn, create_message(
         SESSION_CONFIRM,
         status="ok",
         requester=NAME,
         target=PEER,
-        session_key=session_key.hex(),
+        key_size=len(session_key) * 8,
     ))
 
-    print(f"[{NAME}] Session ticket accepted. Secure chat established with {PEER}.")
+    print(f"[{NAME}] Session ticket accepted. Secure chat established with {PEER} using AES-{len(session_key) * 8}.")
     return session_key
 
 
-def _send_chat_message(sock: socket.socket, session_key: bytes, text: str) -> None:
+def _send_chat_message(sock: socket.socket, session_key: bytes, text: str, mode: str) -> None:
     print(f"[{NAME}] Encrypting message...")
 
-    payload = encrypt_text(session_key, text, AES_MODE)
+    payload = encrypt_text(session_key, text, mode)
 
     if payload.get("iv"):
         print(f"IV: {payload['iv']}")
@@ -199,44 +286,57 @@ def _receive_chat_message(sock: socket.socket, session_key: bytes) -> str | None
     return plaintext
 
 
-def chat_loop(sock: socket.socket, session_key: bytes) -> None:
-    # two-way chat loop using select.select for client/server TCP chat
+def _read_console(lines: queue.Queue[str | None]) -> None:
+    while True:
+        line = sys.stdin.readline()
+        if not line:
+            lines.put(None)
+            return
+        lines.put(line.rstrip("\r\n"))
+
+
+def chat_loop(
+    sock: socket.socket,
+    session_key: bytes,
+    mode: str = AES_MODE,
+    key_seed: bytes | None = None,
+) -> None:
+    # Watch the socket with select; a background reader handles console input on Windows.
     """
     session_key is a local variable here (not a module-level constant), so
     the /key command can reassign it on the fly: every subsequent send/
     receive picks up the new value immediately, with no restart needed."""
 
+    key_seed = session_key if key_seed is None else key_seed
     print(f"[{NAME}] Active session key: {_describe_key(session_key)}")
+    print(f"[{NAME}] Outgoing AES mode: {mode}")
     print(f"[{NAME}] Type /help for runtime commands (e.g. changing the AES key without restarting).")
+    lines: queue.Queue[str | None] = queue.Queue()
+    threading.Thread(target=_read_console, args=(lines,), daemon=True).start()
     print(f"[{NAME}] > ", end="", flush=True)
 
     while True:
-        readable, _, _ = select.select([sys.stdin, sock], [], [])
+        readable, _, _ = select.select([sock], [], [], 0.1)
 
-        if sys.stdin in readable:
-            line = sys.stdin.readline()
-            if not line:
+        try:
+            text = lines.get_nowait()
+        except queue.Empty:
+            pass
+        else:
+            if text is None:
                 break
-
-            text = line.rstrip("\n")
             if not text:
                 print(f"[{NAME}] > ", end="", flush=True)
-                continue
-
-            if text.lower() in EXIT_WORDS:
+            elif text.lower() in EXIT_WORDS:
                 break
-
-            if text.startswith(COMMAND_PREFIX):
-                session_key = _handle_command(text, session_key)
+            elif text.startswith(COMMAND_PREFIX):
+                session_key, mode = _handle_command(text, session_key, key_seed, mode)
                 print(f"[{NAME}] > ", end="", flush=True)
-                continue
+            else:
+                _send_chat_message(sock, session_key, text, mode)
+                print(f"\n[{NAME}] > ", end="", flush=True)
 
-            _send_chat_message(sock, session_key, text)
-
-
-            print(f"\n[{NAME}] > ", end="", flush=True)
-
-        if sock in readable:
+        if readable:
             try:
                 plaintext = _receive_chat_message(sock, session_key)
             except (ConnectionError, OSError, ValueError, json.JSONDecodeError) as exc:
@@ -258,15 +358,16 @@ def chat_loop(sock: socket.socket, session_key: bytes) -> None:
             print(f"\n[{NAME}] > ", end="", flush=True)
 
 
-def handle_alice(conn: socket.socket, address) -> None:
+def handle_alice(conn: socket.socket, address, expected_key_size: int | None = None, mode: str = AES_MODE) -> None:
     conn.settimeout(SOCKET_TIMEOUT)
     try:
-        session_key = _accept_session_ticket(conn)
+        session_key = _accept_session_ticket(conn, expected_key_size)
+        key_seed = session_key
 
         # handshake is done, rely on select() in the chat loop instead of
         # a short handshake timeout
         conn.settimeout(None)
-        chat_loop(conn, session_key)
+        chat_loop(conn, session_key, mode, key_seed)
     except (ConnectionError, OSError, ValueError, json.JSONDecodeError) as exc:
         print(f"[{NAME}] Client {address} error: {exc}")
         try:
@@ -279,15 +380,21 @@ def handle_alice(conn: socket.socket, address) -> None:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Bob secure chat server")
+    parser.add_argument("--mode", type=str.upper, choices=("ECB", "CBC"))
+    parser.add_argument("--key-size", type=int, choices=(128, 192, 256))
+    args = parser.parse_args()
+    mode, key_size = _choose_options(args.mode, args.key_size)
+
     host = os.environ.get("BOB_HOST", BOB_HOST)
     port = int(os.environ.get("BOB_PORT", BOB_PORT))
 
     with create_tcp_server(host, port) as server:
-        print(f"[{NAME}] Listening on {host}:{port}")
+        print(f"[{NAME}] Listening on {host}:{port}; outgoing AES mode is {mode}, expected key size is AES-{key_size}.")
         while True:
             conn, address = server.accept()
             print(f"[{NAME}] {PEER} connected from {address[0]}:{address[1]}")
-            handle_alice(conn, address)
+            handle_alice(conn, address, key_size, mode)
 
 
 if __name__ == "__main__":

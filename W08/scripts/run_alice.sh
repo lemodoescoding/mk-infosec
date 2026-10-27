@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+export PYTHONPATH="${PROJECT_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
+export KDC_KEY_ALICE="${KDC_KEY_ALICE:-alice-master-key}"
+export KDC_HOST="${KDC_HOST:-192.168.100.100}"
+export KDC_PORT="${KDC_PORT:-5000}"
+export BOB_HOST="${BOB_HOST:-192.168.100.102}"
+export BOB_PORT="${BOB_PORT:-5002}"
+
+cd "${PROJECT_ROOT}"
+python -m entities.alice

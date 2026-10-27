@@ -96,7 +96,7 @@ def encrypt_text(
     plaintext: str,
     mode: str = "CBC",
 ) -> dict:
-    # encrypts UTF-8 encoded text into a transport-friendly dictionary
+    # encrypts ASCII encoded text into a transport-friendly dictionary
     aes = AES(key)
     plaintext_bytes = ascii_to_bytes(plaintext, "Plaintext")
     mode = mode.upper()

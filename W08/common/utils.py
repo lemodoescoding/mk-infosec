@@ -1,3 +1,4 @@
+import json
 import secrets
 import socket
 
@@ -76,3 +77,11 @@ def key_from_ascii(key: str) -> bytes:
         raise ValueError("AES-128 key must be exactly 16 ASCII bytes")
 
     return key_bytes
+
+# serialize a payload to ASCII json
+def serialize_payload(payload: dict) -> str:
+    return json.dumps(
+        payload,
+        separators=(",", ":"),
+        ensure_ascii=True
+    )

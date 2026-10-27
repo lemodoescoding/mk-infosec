@@ -98,6 +98,11 @@ AES_ROUNDS = 10
 AES_NB = 4
 AES_NK = 4
 
+# KDC constants
+SEPARATOR = "||"
+SESSION_KEY_SIZE = 16
+MAX_SEEN_NONCES = 1024
+
 # Fixed protocol ident
 
 

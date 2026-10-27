@@ -1,4 +1,5 @@
 import secrets
+from typing import Optional
 
 from crypto.aes import AES
 from config.constants import AES_BLOCK_SIZE
@@ -35,7 +36,7 @@ def ecb_decrypt(aes: AES, ciphertext: bytes) -> bytes:
 def cbc_encrypt(
     aes: AES,
     plaintext: bytes,
-    iv: bytes | None = None,
+    iv: Optional[bytes] = None,
 ) -> tuple[bytes, bytes]:
     # encrypts using AES-CBC. return tuple (IV, ciphertext)
     if iv is None:

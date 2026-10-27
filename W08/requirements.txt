@@ -1,0 +1,4 @@
+## Requirements
+
+- Python 3.9.18 (Tiny Core Linux / GNS3)
+- Python standard library only for the core implementation

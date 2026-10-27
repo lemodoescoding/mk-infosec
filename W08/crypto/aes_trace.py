@@ -8,6 +8,8 @@ Notes on the state layout (FIPS 197): the 16 input bytes fill the 4x4 state
 column by column. The one-line hex shown for each step is the state read back
 in that same order, i.e. the same byte order as the block itself.
 """
+from typing import Optional
+
 from common.utils import (
     generate_random_bytes,
     pkcs7_pad,
@@ -163,7 +165,7 @@ def traced_encrypt_text(
     aes: TracedAES,
     plaintext: str,
     mode: str = "CBC",
-    iv: bytes | None = None,
+    iv: Optional[bytes] = None,
 ) -> dict:
     # same output format as crypto.modes.encrypt_text(), but prints every step
     log = aes._log
@@ -179,7 +181,7 @@ def traced_encrypt_text(
     log(f"  plaintext hex       = {hexs(data)}")
     log(f"  PKCS#7 padded hex   = {hexs(padded)}  ({len(blocks)} block(s))")
 
-    iv_used: bytes | None = None  # stays None for ECB
+    iv_used: Optional[bytes] = None  # stays None for ECB
     prev = b""                    # previous ciphertext block (CBC chaining)
     if mode == "CBC":
         iv_used = iv if iv is not None else generate_random_bytes(AES_BLOCK_SIZE)

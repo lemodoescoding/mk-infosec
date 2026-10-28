@@ -43,8 +43,16 @@ DEFAULT_KEYS = {
     "Bob": "bob---master-key",
 }
 
+_master_key_override: Optional[bytes] = None
+
+def _set_master_key_override(key: Optional[bytes]) -> None:
+    global _master_key_override
+    _master_key_override = key
 
 def _load_master_key(identity: str) -> bytes:
+    if identity == NAME and _master_key_override is not None:
+        return _master_key_override
+
     env_name = f"KDC_KEY_{identity.upper()}"
     value = os.environ.get(env_name, DEFAULT_KEYS[identity])
     return key_from_ascii(value)
@@ -129,6 +137,8 @@ def _print_help() -> None:
     print("  /key <ascii-key>     switch to a new 16/24/32-character ASCII key")
     print("  /key 0x<hex>         switch to a new key given as hex (32/48/64 hex chars)")
     print("  /keysize <bits>      switch to AES-128, AES-192, or AES-256")
+    print(f"  /masterkey           show the master key {NAME} shares with the KDC")
+    print("  /masterkey <value>   change it (ascii or 0x<hex>); applies to the NEXT incoming")
     print("  /mode <ECB|CBC>      select the mode used for outgoing messages")
     print("  /debug               toggle detailed AES encryption/decryption tracing")
     print("  /config              show this side's current key, key size, and mode")
@@ -185,6 +195,25 @@ def _handle_command(
             return session_key, mode
         print(f"[{NAME}] Outgoing AES mode set to {selected_mode}.")
         return session_key, selected_mode
+
+    if command == "masterkey":
+        if not argument:
+            current = _load_master_key(NAME)
+            print(f"[{NAME}] Active master key (shared with the KDC): {_describe_key(current)}")
+            return session_key, mode
+ 
+        try:
+            new_master_key = _parse_key_argument(argument)
+        except (ValueError, TypeError) as exc:
+            print(f"[{NAME}] Could not change master key: {exc}")
+            print(f"[{NAME}] Use /help for the accepted key formats.")
+            return session_key, mode
+ 
+        _set_master_key_override(new_master_key)
+        print(f"[{NAME}] Master key changed -> {_describe_key(new_master_key)}")
+        print(f"[{NAME}] This applies to the NEXT incoming connection, not the current chat with {PEER}.")
+        print(f"[{NAME}] The KDC's copy of {NAME}'s key must be rotated to match (its own /key command).")
+        return session_key, mode
 
     if command in ("help", "?"):
         _print_help()

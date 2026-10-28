@@ -48,8 +48,16 @@ DEFAULT_KEYS = {
     "Bob": "bob---master-key",
 }
 
+_master_key_override: Optional[bytes] = None
 
+def _set_master_key_override(key: Optional[bytes]) -> None:
+    global _master_key_override
+    _master_key_override = key
+ 
 def _load_master_key(identity: str) -> bytes:
+    if identity == NAME and _master_key_override is not None:
+        return _master_key_override
+
     env_name = f"KDC_KEY_{identity.upper()}"
     value = os.environ.get(env_name, DEFAULT_KEYS[identity])
     return key_from_ascii(value)
@@ -113,7 +121,7 @@ def _parse_key_argument(value: str) -> bytes:
 
 def _display_configuration(session_key: bytes, mode: str, debug_enabled: bool) -> None:
     # Session keys are usually random bytes, so the ASCII view escapes non-printable
-    # and non-ASCII bytes instead of silently replacing them.
+    # and non-ASCII bytes instead of silently replacing them
     ascii_view = session_key.decode("ascii", errors="backslashreplace")
     print(f"[{NAME}] Current local configuration:")
     print(f"  Key (ASCII/escaped): {ascii_view!r}")
@@ -128,6 +136,9 @@ def _print_help() -> None:
     print("  /key <ascii-key>     switch to a new 16/24/32-character ASCII key")
     print("  /key 0x<hex>         switch to a new key given as hex (32/48/64 hex chars)")
     print("  /keysize <bits>      switch to AES-128, AES-192, or AES-256")
+    print(f"  /masterkey           show the master key {NAME} shares with the KDC")
+    print("  /masterkey <value>   change it (ascii or 0x<hex>); the KDC must match it too")
+    print(f"  /rekey               reconnect to {PEER} with a fresh KDC handshake")
     print("  /mode <ECB|CBC>      select the mode used for outgoing messages")
     print("  /debug               toggle detailed AES encryption/decryption tracing")
     print("  /config              show this side's current key, key size, and mode")
@@ -184,6 +195,25 @@ def _handle_command(
             return session_key, mode
         print(f"[{NAME}] Outgoing AES mode set to {selected_mode}.")
         return session_key, selected_mode
+
+    if command == "masterkey":
+        if not argument:
+            current = _load_master_key(NAME)
+            print(f"[{NAME}] Active master key (shared with the KDC): {_describe_key(current)}")
+            return session_key, mode
+ 
+        try:
+            new_master_key = _parse_key_argument(argument)
+        except (ValueError, TypeError) as exc:
+            print(f"[{NAME}] Could not change master key: {exc}")
+            print(f"[{NAME}] Use /help for the accepted key formats.")
+            return session_key, mode
+ 
+        _set_master_key_override(new_master_key)
+        print(f"[{NAME}] Master key changed -> {_describe_key(new_master_key)}")
+        print(f"[{NAME}] This only affects the NEXT KDC handshake -- run /rekey to actually use it.")
+        print(f"[{NAME}] The KDC's copy of {NAME}'s key must be rotated to match (its own /key command).")
+        return session_key, mode
 
     if command in ("help", "?"):
         _print_help()
@@ -278,6 +308,24 @@ def establish_session(
     # in the chat loop instead of a short handshake timeout
     sock.settimeout(None)
     return sock, session_key
+
+def _rekey(old_sock: socket.socket, mode: str, key_size: int) -> tuple[socket.socket, bytes]:
+    # this does closes the current connection and performs a brand-new KDC request + ticket handshake from scratch 
+    print(f"[{NAME}] Rekeying: closing the current connection and requesting a fresh session from the KDC...")
+ 
+    try:
+        old_sock.close()
+    except OSError:
+        pass
+ 
+    response = request_session_from_kdc()
+    new_sock, new_session_key = establish_session(
+        response["ticket"],
+        response["session_key"],
+        mode,
+        key_size,
+    )
+    return new_sock, new_session_key
 
 
 def _send_chat_message(sock: socket.socket, session_key: bytes, text: str, mode: str, debug_enabled: bool = False) -> None:
@@ -413,6 +461,19 @@ def chat_loop(
                         print(f"[{NAME}] Usage: /config")
                     else:
                         _display_configuration(session_key, mode, debug_enabled)
+
+                elif command == "rekey":
+                        if len(command_parts) > 1:
+                            print(f"[{NAME}] Usage: /rekey (reconnect to {PEER} using the active master key).")
+                        else:
+                            try:
+                                sock, session_key = _rekey(sock, mode, len(session_key) * 8)
+                                key_seed = session_key
+                                print(f"[{NAME}] Rekey complete; chatting with {PEER} on the new session.")
+                            except (ConnectionError, OSError, ValueError, json.JSONDecodeError) as exc:
+                                print(f"[{NAME}] Rekey failed: {exc}")
+                                print(f"[{NAME}] The old connection is closed; ending the chat.")
+                                return
 
                 else:
                     session_key, mode = _handle_command(text, session_key, key_seed, mode)

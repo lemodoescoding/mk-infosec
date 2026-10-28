@@ -3,6 +3,8 @@ import os
 import re
 import json
 from collections import OrderedDict
+import sys
+import threading
 
 from config.settings import (
     KDC_HOST, 
@@ -60,6 +62,103 @@ def load_master_keys() -> dict[str, bytes]:
 
     return keys
 
+_master_keys_lock = threading.Lock()
+
+def _describe_key(key: bytes) -> str:
+    return f"{key.hex()}  (AES-{8 * len(key)}, {len(key)} bytes)"
+
+def _parse_key_argument(value: str) -> bytes:
+    # accepts either a literal ASCII key (16/24/32 chars, same shape as KDC_KEY_ALICE / KDC_KEY_BOB) or
+    # a hex-encoded key via "0x..." / "hex:..." (the same implementation on alice and bob)
+    value = value.strip()
+    if not value:
+        raise ValueError("no key value given")
+ 
+    lowered = value.lower()
+    if lowered.startswith("0x") or lowered.startswith("hex:"):
+        hex_part = value.split(":", 1)[1] if ":" in value else value[2:]
+        try:
+            key = bytes.fromhex(hex_part)
+        except ValueError as exc:
+            raise ValueError(f"invalid hex key: {exc}") from exc
+        validate_aes_key(key)
+        return key
+ 
+    return key_from_ascii(value)
+
+def _print_console_help() -> None:
+    print("[KDC] Runtime commands:")
+    print("  /key                      show both master keys")
+    print("  /key <Alice|Bob>          show one identity's master key")
+    print("  /key <Alice|Bob> <ascii>  change that identity's master key (16/24/32 ASCII chars)")
+    print("  /key <Alice|Bob> 0x<hex>  change that identity's master key (hex form)")
+    print("  /help                     show this message")
+
+def _handle_console_command(text: str, master_keys: dict[str, bytes]) -> None:
+    # never touches master_keys variable, and never the socket itself, hence safe to run on this background thread while the main thread is blocked in server.accept().
+    parts = text[1:].split(maxsplit=2)
+    command = parts[0].lower() if parts else ""
+ 
+    if command == "key":
+        identity_arg = parts[1] if len(parts) > 1 else None
+        value_arg = parts[2] if len(parts) > 2 else ""
+ 
+        if identity_arg is None:
+            with _master_keys_lock:
+                for name, key in master_keys.items():
+                    print(f"[KDC] {name}: {_describe_key(key)}")
+            return
+ 
+        identity = identity_arg.strip().capitalize()
+        if identity not in master_keys:
+            print(f"[KDC] Unknown identity: {identity_arg!r}. Expected Alice or Bob.")
+            return
+ 
+        if not value_arg:
+            with _master_keys_lock:
+                print(f"[KDC] {identity}: {_describe_key(master_keys[identity])}")
+            return
+ 
+        try:
+            new_key = _parse_key_argument(value_arg)
+        except (ValueError, TypeError) as exc:
+            print(f"[KDC] Could not change {identity}'s master key: {exc}")
+            print("[KDC] Use /help for the accepted key formats.")
+            return
+ 
+        with _master_keys_lock:
+            master_keys[identity] = new_key
+ 
+        print(f"[KDC] {identity}'s master key changed -> {_describe_key(new_key)}")
+        print(f"[KDC] {identity} must set the matching key too (their own /masterkey command) before the next handshake.")
+        return
+ 
+    if command in ("help", "?"):
+        _print_console_help()
+        return
+ 
+    print(f"[KDC] Unknown command: /{command}. Type /help for options.")
+ 
+ 
+def _console_loop(master_keys: dict[str, bytes]) -> None:
+    # runs on a daemon thread so the main thread can keep blocking on server.accept()
+    # this lets a master key be rotated without restarting the KDC
+ 
+    print("[KDC] Type /help for runtime commands (e.g. rotating a master key without restarting).")
+    while True:
+        line = sys.stdin.readline()
+        if not line:
+            return
+ 
+        text = line.strip()
+        if not text:
+            continue
+ 
+        if text.startswith("/"):
+            _handle_console_command(text, master_keys)
+        else:
+            print("[KDC] Unrecognized input. Commands start with /. Type /help for options.")
+
 NONCE_RE = re.compile(r"^[A-Za-z0-9]{1,64}$")
 _seen_nonces: dict[str, OrderedDict[str, None]] = {}
 
@@ -113,6 +212,10 @@ def build_key_response(
     _remember_nonce(requester, nonce)
  
     ks_hex = generate_random_bytes(SESSION_KEY_SIZE).hex()  # Ks
+
+    with _master_keys_lock:
+        target_key = master_keys[target]
+        requester_key = master_keys[requester]
  
     # E(Ka, [Ks || ID_A || ID_B || N1])
     # E(Kb, [Ks || ID_A])  -> Bob's ticket
@@ -122,7 +225,7 @@ def build_key_response(
 
     # E(Kb, [Ks || ID_A]): only the target can open the ticket
     ticket = encrypt_text(
-        master_keys[target],
+        target_key,
         SEPARATOR.join((ks_hex, requester)),
         mode,
     )
@@ -130,7 +233,7 @@ def build_key_response(
     # E(Ka, [Ks || ID_A || ID_B || N1])
     # E(Ka, {...}): only the requester can open this, and it carries the ticket
     protected_response = encrypt_text(
-        master_keys[requester],
+        requester_key,
         serialize_payload({
             "session_key": ks_hex,
             "requester": requester,
@@ -191,6 +294,9 @@ def handle_client(conn: socket.socket, address: str, master_keys: dict[str, byte
 def main() -> None:
     validate_aes_key(bytes(SESSION_KEY_SIZE))
     master_keys = load_master_keys()
+
+    threading.Thread(target=_console_loop, args=(master_keys,), daemon=True).start()
+
     with create_tcp_server(KDC_HOST, KDC_PORT) as server:
         print(f"[KDC] Listening on {KDC_HOST}:{KDC_PORT}")
         while True:

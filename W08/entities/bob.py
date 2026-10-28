@@ -20,13 +20,15 @@ from config.settings import (
 
 from common.network import create_tcp_server, recv_json, send_json
 from common.protocol import (
+    AUTH_CHALLENGE,
+    AUTH_RESPONSE,
     CHAT_MESSAGE,
     ERROR,
     SESSION_CONFIRM,
     SESSION_TICKET,
     create_message,
 )
-from common.utils import key_from_ascii, validate_aes_key
+from common.utils import key_from_ascii, validate_aes_key,nonce_response, generate_random_bytes
 from crypto.modes import decrypt_text, encrypt_text
 from crypto.aes_trace import TracedAES, traced_decrypt_text, traced_encrypt_text
 
@@ -223,7 +225,37 @@ def _handle_command(
     return session_key, mode
 
 
-def _accept_session_ticket(conn: socket.socket, expected_key_size: Optional[int] = None) -> bytes:
+def _authenticate_alice(conn: socket.socket, session_key: bytes, mode: str) -> None:
+    # (4) B -> A : E(Ks, N2)
+    # (5) A -> B : E(Ks, f(N2))
+    # this proves Alice actually holds Ks (not just that she could forward a ticket she can't read), guarding against a replayed/stolen ticket
+    nonce = generate_random_bytes(8).hex()
+    send_json(conn, create_message(
+        AUTH_CHALLENGE,
+        payload=encrypt_text(session_key, nonce, mode),
+    ))
+
+    response = recv_json(conn)
+    if response.get("type") == ERROR:
+        raise ValueError(response.get("reason", f"{PEER} rejected auth challenge"))
+    if response.get("type") != AUTH_RESPONSE:
+        raise ValueError(f"Unexpected {PEER} response: {response.get('type')}")
+
+    payload = response.get("payload")
+    if not isinstance(payload, dict):
+        raise ValueError(f"{PEER} sent a malformed auth response")
+
+    try:
+        received = decrypt_text(session_key, payload)
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise ValueError(f"Could not decrypt {PEER}'s auth response: {exc}") from exc
+
+    if received != nonce_response(nonce):
+        raise ValueError(f"{PEER} failed the mutual authentication challenge")
+
+    print(f"[{NAME}] {PEER} proved possession of the session key (steps 4/5 complete).")
+
+def _accept_session_ticket(conn: socket.socket, expected_key_size: Optional[int] = None, mode: str = AES_MODE) -> bytes:
     message = recv_json(conn)
     if message.get("type") != SESSION_TICKET:
         send_json(conn, create_message(ERROR, reason="Expected session ticket"))
@@ -276,6 +308,8 @@ def _accept_session_ticket(conn: socket.socket, expected_key_size: Optional[int]
     ))
 
     print(f"[{NAME}] Session ticket accepted. Secure chat established with {PEER} using AES-{len(session_key) * 8}.")
+
+    _authenticate_alice(conn, session_key, mode)
     return session_key
 
 
@@ -441,7 +475,7 @@ def chat_loop(
 def handle_alice(conn: socket.socket, address, expected_key_size: Optional[int] = None, mode: str = AES_MODE) -> None:
     conn.settimeout(SOCKET_TIMEOUT)
     try:
-        session_key = _accept_session_ticket(conn, expected_key_size)
+        session_key = _accept_session_ticket(conn, expected_key_size, mode)
         key_seed = session_key
 
         # handshake is done, rely on select() in the chat loop instead of

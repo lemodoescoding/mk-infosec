@@ -23,6 +23,8 @@ from config.settings import (
 
 from common.network import connect_tcp, recv_json, send_json
 from common.protocol import (
+    AUTH_CHALLENGE,
+    AUTH_RESPONSE,
     CHAT_MESSAGE,
     ERROR,
     KEY_REQUEST,
@@ -31,7 +33,7 @@ from common.protocol import (
     SESSION_TICKET,
     create_message,
 )
-from common.utils import key_from_ascii, validate_aes_key
+from common.utils import key_from_ascii, validate_aes_key, nonce_response
 from crypto.modes import decrypt_text, encrypt_text
 from crypto.aes_trace import TracedAES, traced_decrypt_text, traced_encrypt_text
 
@@ -262,6 +264,32 @@ def request_session_from_kdc() -> dict:
 
     return {**inner, "session_key": session_key}
 
+def _complete_authentication(sock: socket.socket, session_key: bytes, mode: str) -> None:
+    # (4) B -> A : E(Ks, N2)
+    # (5) A -> B : E(Ks, f(N2))
+    # Alice proves she holds Ks by decrypting Bob's nonce challenge and replying with a publicly-known transform of it, encrypted under Ks
+    challenge = recv_json(sock)
+    if challenge.get("type") == ERROR:
+        raise ValueError(challenge.get("reason", f"{PEER} rejected the session"))
+    if challenge.get("type") != AUTH_CHALLENGE:
+        raise ValueError(f"Unexpected {PEER} message: {challenge.get('type')}")
+
+    payload = challenge.get("payload")
+    if not isinstance(payload, dict):
+        raise ValueError(f"{PEER} sent a malformed auth challenge")
+
+    try:
+        nonce = decrypt_text(session_key, payload)
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise ValueError(f"Could not decrypt {PEER}'s auth challenge: {exc}") from exc
+
+    send_json(sock, create_message(
+        AUTH_RESPONSE,
+        payload=encrypt_text(session_key, nonce_response(nonce), mode),
+    ))
+
+    print(f"[{NAME}] Proved possession of the session key to {PEER} (steps 4/5 complete).")
+
 
 def establish_session(
     ticket: dict,
@@ -298,6 +326,8 @@ def establish_session(
             raise ValueError(f"Unexpected {PEER} response: {confirm.get('type')}")
         if confirm.get("key_size") != key_size:
             raise ValueError(f"{PEER} confirmed a different AES key size")
+
+        _complete_authentication(sock, session_key, mode)
     except Exception:
         sock.close()
         raise

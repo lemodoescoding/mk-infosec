@@ -15,6 +15,8 @@ The KDC protocol is determined to be like below format and sequence
 (1) A   -> KDC : ID_A || ID_B || N1
 (2) KDC -> A   : E(Ka, { Ks, ID_A, ID_B, N1, E(Kb, [Ks || ID_A]) })
 (3) A   -> B   : E(Kb, [Ks || ID_A])          (ticket, forwarded by Alice)
+(4) B -> A : E(Ks, N2)
+(5) A -> B : E(Ks, f(N2))
  
 The ticket is nested inside the payload that only Alice can decrypt, so the
 KDC response carries a single protected object ("response").

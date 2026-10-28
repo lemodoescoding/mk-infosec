@@ -84,3 +84,9 @@ def serialize_payload(payload: dict) -> str:
         separators=(",", ":"),
         ensure_ascii=True
     )
+
+def nonce_response(nonce_hex: str) -> str:
+    value = int(nonce_hex, 16)
+    length = len(nonce_hex) // 2
+    transformed = (value - 1) % (1 << (length * 8))
+    return transformed.to_bytes(length, "big").hex()
